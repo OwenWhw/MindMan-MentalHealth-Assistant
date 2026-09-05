@@ -1,0 +1,31 @@
+# ============================================================
+# 本地私密配置模板
+# ------------------------------------------------------------
+# 使用方式：
+#   1. 复制一份并重命名为 application-local.yml
+#   2. 填入你自己的真实密钥
+#   3. application-local.yml 已被 .gitignore 忽略，不会被提交
+#
+# 这里的 key 名是"变量名"，会被 application.yml / application-dev.yml
+# 中的 ${XXX:默认值} 占位符读取。
+# 也可以不建这个文件，直接设置同名的操作系统环境变量。
+# ============================================================
+
+# 阿里云百炼 API Key（DashScope）
+# 申请地址：https://bailian.console.aliyun.com/ → API-KEY 管理
+AI_BAILIAN_API_KEY:
+
+# JWT 签名密钥（HS256 要求 >= 256 bits，生产环境务必更换）
+JWT_SECRET: mindman-jwt-secret-key-2026-must-be-at-least-256-bits-long-for-hs256
+
+# MySQL
+MYSQL_HOST: localhost
+MYSQL_PORT: 3306
+MYSQL_DATABASE: mindman
+MYSQL_USERNAME: root
+MYSQL_PASSWORD: "1234"
+
+# Redis
+REDIS_HOST: localhost
+REDIS_PORT: 6379
+REDIS_PASSWORD:

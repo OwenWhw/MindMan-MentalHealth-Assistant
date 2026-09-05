@@ -1,0 +1,49 @@
+# ===== 依赖与构建产物 =====
+node_modules/
+target/
+dist/
+dist-preview/
+build/
+*.class
+
+# ===== 日志与运行时文件 =====
+*.log
+run.log
+nohup.out
+*.tmp
+*.swp
+
+# ===== 本地私密配置（含真实 API Key / 密码）=====
+**/application-local.yml
+**/application-local.yaml
+.env.local
+.env.*.local
+
+# ===== IDE / 编辑器 =====
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+.DS_Store
+
+# ===== 工具与二进制文件 =====
+tools/cloudflared.exe
+tools/node_modules/
+*.exe
+*.msi
+*.jar
+
+# ===== 隧道与预览缓存 =====
+cf_out.txt
+cf_err.txt
+cf_ver.txt
+
+# ===== 与项目无关的临时脚本 =====
+# 注意：必须锚定到仓库根目录，否则会误伤 src/main/java/com/
+/inspect_codex_state.py
+/com/
+
+# ===== WorkBuddy / Codex 工作区数据 =====
+.workbuddy/
+.codex/

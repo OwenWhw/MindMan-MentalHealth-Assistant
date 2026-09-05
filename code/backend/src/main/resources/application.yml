@@ -1,0 +1,76 @@
+server:
+  port: 8080
+
+spring:
+  profiles:
+    active: dev
+  application:
+    name: mindman-server
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: Asia/Shanghai
+    default-property-inclusion: non_null
+
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  global-config:
+    db-config:
+      id-type: auto
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+  configuration:
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    map-underscore-to-camel-case: true
+
+# JWT
+# 生产环境请通过环境变量 JWT_SECRET 注入，切勿沿用默认值
+jwt:
+  secret: ${JWT_SECRET:mindman-jwt-secret-key-2026-must-be-at-least-256-bits-long-for-hs256}
+  expiration: 604800000  # 7 天
+
+# Knife4j
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+  api-docs:
+    path: /v3/api-docs
+
+knife4j:
+  enable: true
+  setting:
+    language: zh_cn
+
+# ===== 硅基流动 AI 配置 =====
+# 注册地址：https://siliconflow.cn → 账号设置 → API Keys
+# 不配置 api-key 时，AI 将自动降级为本地模拟回复（共情话术）
+ai:
+  siliconflow:
+    api-key: ${AI_SILICONFLOW_API_KEY:}   # 留空则 AI 自动降级为本地模拟回复
+    base-url: https://api.siliconflow.cn/v1
+    model: Qwen/Qwen2.5-72B-Instruct     # 推荐模型：DeepSeek-V3 / Qwen2.5-72B / Qwen2.5-7B(轻量)
+    max-tokens: 2048                     # 最大回复长度
+    temperature: 0.8                     # 创造性（心理对话建议 0.7-0.9）
+    connect-timeout: 10s                 # 连接超时
+    read-timeout: 60s                    # 流式读取超时（需足够长）
+    system-prompt: |
+      你是 MindMan，一位温暖、专业的心理健康助手。你的特点：
+
+      【核心原则】
+      - 以共情和倾听为主，不急于给建议
+      - 使用温和、鼓励的语言，避免说教
+      - 关注用户的情绪状态，而非仅关注事件本身
+      - 适时使用开放式问题引导用户深入表达
+
+      【回复风格】
+      - 语言简洁自然，像朋友聊天一样
+      - 每次回复控制在 200 字以内
+      - 适当使用 emoji 增加亲和力 🌱
+      - 不做医学诊断，必要时建议寻求专业帮助
+
+      【情绪识别】
+      - 能敏锐捕捉用户文字中的情绪信号
+      - 回复中体现对用户情绪的理解和接纳
+      - 不评判任何情绪，所有情绪都是合理的
+
+      请始终用简体中文回复。

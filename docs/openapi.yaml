@@ -1,0 +1,798 @@
+openapi: 3.0.3
+info:
+  title: 心理健康助手 - 管理端接口
+  description: 心理健康助手管理后台接口定义，可直接导入 Apifox / Postman / Swagger
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080/api
+    description: 本地开发环境
+security:
+  - tokenAuth: []
+tags:
+  - name: 认证
+  - name: 知识文章
+  - name: 咨询会话
+  - name: 情绪日记
+  - name: 数据分析
+paths:
+  /auth/login:
+    post:
+      tags: [认证]
+      summary: 登录接口
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResult'
+  /auth/logout:
+    post:
+      tags: [认证]
+      summary: 用户退出登录
+      responses:
+        '200':
+          description: 退出成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  /auth/password:
+    put:
+      tags: [认证]
+      summary: 修改密码
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '200':
+          description: 修改成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  /knowledge/category/tree:
+    get:
+      tags: [知识文章]
+      summary: 获取分类
+      description: 获取文章分类树
+      responses:
+        '200':
+          description: 分类树
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: integer
+                  msg:
+                    type: string
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Category'
+  /knowledge/category:
+    post:
+      tags: [知识文章]
+      summary: 新增分类
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CategorySaveRequest'
+      responses:
+        '200':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    put:
+      tags: [知识文章]
+      summary: 更新分类
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CategorySaveRequest'
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  /knowledge/category/{id}:
+    delete:
+      tags: [知识文章]
+      summary: 删除分类
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  /knowledge/article/page:
+    get:
+      tags: [知识文章]
+      summary: 知识文章列表（分页）
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            default: 10
+        - name: title
+          in: query
+          description: 文章标题（模糊搜索）
+          schema:
+            type: string
+        - name: categoryId
+          in: query
+          schema:
+            type: integer
+        - name: status
+          in: query
+          description: 1 已发布 / 0 已下线
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: 文章分页列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArticlePageResult'
+  /knowledge/article:
+    post:
+      tags: [知识文章]
+      summary: 文章新增/编辑
+      description: articleId 为空时新增，不为空时编辑
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArticleSaveRequest'
+      responses:
+        '200':
+          description: 保存成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+    put:
+      tags: [知识文章]
+      summary: 更新知识文章
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ArticleSaveRequest'
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  /knowledge/article/{id}:
+    get:
+      tags: [知识文章]
+      summary: 获取知识文章详情
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: 文章详情
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ArticleDetail'
+    delete:
+      tags: [知识文章]
+      summary: 删除知识文章
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  /knowledge/article/status:
+    put:
+      tags: [知识文章]
+      summary: 更新文章状态
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [articleId, status]
+              properties:
+                articleId:
+                  type: integer
+                status:
+                  type: integer
+                  description: 1 已发布 / 0 已下线
+      responses:
+        '200':
+          description: 操作成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  /consult/session/page:
+    get:
+      tags: [咨询会话]
+      summary: 分页查询咨询会话
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            default: 10
+        - name: keyword
+          in: query
+          description: 用户昵称/ID 模糊搜索
+          schema:
+            type: string
+        - name: status
+          in: query
+          description: 1 进行中 / 2 已结束
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: 会话分页列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionPageResult'
+  /consult/session/{sessionId}/messages:
+    get:
+      tags: [咨询会话]
+      summary: 获取会话消息列表
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: 消息列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageListResult'
+  /consult/session/{id}:
+    delete:
+      tags: [咨询会话]
+      summary: 删除咨询会话
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  /emotion/diary/page:
+    get:
+      tags: [情绪日记]
+      summary: 分页查询情绪日记
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            default: 10
+        - name: userId
+          in: query
+          schema:
+            type: integer
+        - name: emotion
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 日记分页列表
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiaryPageResult'
+  /emotion/diary/{id}:
+    delete:
+      tags: [情绪日记]
+      summary: 删除情绪日记
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: 删除成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+  /analysis/overview:
+    get:
+      tags: [数据分析]
+      summary: 获取综合分析数据
+      parameters:
+        - name: startDate
+          in: query
+          description: 开始日期 yyyy-MM-dd
+          schema:
+            type: string
+        - name: endDate
+          in: query
+          description: 结束日期 yyyy-MM-dd
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 综合分析数据
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisOverview'
+  /file/upload:
+    post:
+      tags: [文件]
+      summary: 文件上传
+      description: 上传图片等文件，返回访问地址
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: 上传成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileUploadResult'
+components:
+  securitySchemes:
+    tokenAuth:
+      type: apiKey
+      in: header
+      name: token
+  schemas:
+    ApiResponse:
+      type: object
+      properties:
+        code:
+          type: integer
+          example: 200
+        msg:
+          type: string
+          example: 操作成功
+        data:
+          nullable: true
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+    LoginResult:
+      type: object
+      properties:
+        code:
+          type: integer
+        msg:
+          type: string
+        data:
+          type: object
+          properties:
+            token:
+              type: string
+            userInfo:
+              $ref: '#/components/schemas/UserInfo'
+    ChangePasswordRequest:
+      type: object
+      required: [oldPassword, newPassword]
+      properties:
+        oldPassword:
+          type: string
+        newPassword:
+          type: string
+          minLength: 6
+    UserInfo:
+      type: object
+      properties:
+        userId:
+          type: integer
+        username:
+          type: string
+        nickname:
+          type: string
+        role:
+          type: string
+    Category:
+      type: object
+      properties:
+        categoryId:
+          type: integer
+        categoryName:
+          type: string
+        description:
+          type: string
+        sortOrder:
+          type: integer
+        status:
+          type: integer
+        statusText:
+          type: string
+        articleCount:
+          type: integer
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+        children:
+          type: array
+          items:
+            $ref: '#/components/schemas/Category'
+    CategorySaveRequest:
+      type: object
+      required: [categoryName]
+      properties:
+        categoryId:
+          type: integer
+        categoryName:
+          type: string
+        description:
+          type: string
+        sortOrder:
+          type: integer
+          default: 10
+        status:
+          type: integer
+          default: 1
+    Article:
+      type: object
+      properties:
+        articleId:
+          type: integer
+        title:
+          type: string
+        categoryId:
+          type: integer
+        categoryName:
+          type: string
+        status:
+          type: integer
+        statusText:
+          type: string
+        author:
+          type: string
+        reads:
+          type: integer
+        cover:
+          type: string
+        publishTime:
+          type: string
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+    ArticleDetail:
+      type: object
+      properties:
+        code:
+          type: integer
+        msg:
+          type: string
+        data:
+          $ref: '#/components/schemas/Article'
+    ArticleSaveRequest:
+      type: object
+      required: [title, categoryId, content]
+      properties:
+        articleId:
+          type: integer
+        title:
+          type: string
+        categoryId:
+          type: integer
+        content:
+          type: string
+        cover:
+          type: string
+        summary:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        status:
+          type: integer
+          default: 1
+    PageResult:
+      type: object
+      properties:
+        total:
+          type: integer
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        list:
+          type: array
+    ArticlePageResult:
+      type: object
+      properties:
+        code:
+          type: integer
+        msg:
+          type: string
+        data:
+          type: object
+          properties:
+            total:
+              type: integer
+            page:
+              type: integer
+            pageSize:
+              type: integer
+            list:
+              type: array
+              items:
+                $ref: '#/components/schemas/Article'
+    ConsultSession:
+      type: object
+      properties:
+        sessionId:
+          type: integer
+        userId:
+          type: integer
+        userName:
+          type: string
+        status:
+          type: integer
+        statusText:
+          type: string
+        messageCount:
+          type: integer
+        startedAt:
+          type: string
+        endedAt:
+          type: string
+          nullable: true
+    SessionPageResult:
+      type: object
+      properties:
+        code:
+          type: integer
+        msg:
+          type: string
+        data:
+          type: object
+          properties:
+            total:
+              type: integer
+            page:
+              type: integer
+            pageSize:
+              type: integer
+            list:
+              type: array
+              items:
+                $ref: '#/components/schemas/ConsultSession'
+    Message:
+      type: object
+      properties:
+        messageId:
+          type: integer
+        sessionId:
+          type: integer
+        role:
+          type: string
+          description: user 用户 / assistant AI 助手
+        content:
+          type: string
+        createdAt:
+          type: string
+    MessageListResult:
+      type: object
+      properties:
+        code:
+          type: integer
+        msg:
+          type: string
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Message'
+    EmotionDiary:
+      type: object
+      properties:
+        diaryId:
+          type: integer
+        userId:
+          type: integer
+        userName:
+          type: string
+        emotion:
+          type: string
+        emotionScore:
+          type: integer
+        content:
+          type: string
+        createdAt:
+          type: string
+    DiaryPageResult:
+      type: object
+      properties:
+        code:
+          type: integer
+        msg:
+          type: string
+        data:
+          type: object
+          properties:
+            total:
+              type: integer
+            page:
+              type: integer
+            pageSize:
+              type: integer
+            list:
+              type: array
+              items:
+                $ref: '#/components/schemas/EmotionDiary'
+    AnalysisOverview:
+      type: object
+      properties:
+        code:
+          type: integer
+        msg:
+          type: string
+        data:
+          type: object
+          properties:
+            userTotal:
+              type: integer
+            activeUsers:
+              type: integer
+            newUsersToday:
+              type: integer
+            diaryTotal:
+              type: integer
+            diaryToday:
+              type: integer
+            sessionTotal:
+              type: integer
+            sessionToday:
+              type: integer
+            emotionHealth:
+              type: integer
+            avgDuration:
+              type: number
+            emotionTrend:
+              type: array
+              items:
+                type: object
+                properties:
+                  date:
+                    type: string
+                  avgScore:
+                    type: number
+                  count:
+                    type: integer
+            consultActivity:
+              type: array
+              items:
+                type: object
+                properties:
+                  date:
+                    type: string
+                  sessions:
+                    type: integer
+                  users:
+                    type: integer
+            sessionStats:
+              type: array
+              items:
+                type: object
+                properties:
+                  date:
+                    type: string
+                  sessions:
+                    type: integer
+            activityTrend:
+              type: array
+              items:
+                type: object
+                properties:
+                  date:
+                    type: string
+                  activeUsers:
+                    type: integer
+                  newUsers:
+                    type: integer
+                  diaryUsers:
+                    type: integer
+                  consultUsers:
+                    type: integer
+    FileUploadResult:
+      type: object
+      properties:
+        code:
+          type: integer
+        msg:
+          type: string
+        data:
+          type: object
+          properties:
+            url:
+              type: string
