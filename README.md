@@ -158,6 +158,8 @@ mysql -u root -p < code/backend/src/main/resources/init.sql
 | --- | --- | --- |
 | `admin` | `123456` | `admin` |
 
+> ⚠️ 上述为**本地演示账号**，仅用于快速体验。若部署到公网，请务必在登录后立即修改密码（或直接修改数据库中的 BCrypt 哈希），避免被扫描利用。
+
 ### 5.3 配置
 
 复制配置模板并填入你的真实密钥（`application-local.yml` 已被 `.gitignore` 忽略，不会被提交）：

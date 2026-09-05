@@ -105,6 +105,8 @@ This creates the `mindman` schema with 6 tables and a default administrator:
 | --- | --- | --- |
 | `admin` | `123456` | `admin` |
 
+> ⚠️ This is a **local demo account** for quick evaluation only. If you deploy to a public network, change the password immediately after the first login (or update the BCrypt hash in the database) to avoid abuse.
+
 ### 2. Configure secrets
 
 ```bash
