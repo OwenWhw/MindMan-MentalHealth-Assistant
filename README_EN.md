@@ -29,6 +29,14 @@ MindMan is a self-service mental-health platform for everyday users, bundled wit
 
 > ⚠️ **Disclaimer**: MindMan is a mood-tracking and companionship tool. It provides **no medical diagnosis**. AI replies and scales are for reference only and are not a substitute for professional care.
 
+## 📷 Screenshots
+
+| Login | Home & Insights |
+| --- | --- |
+| ![Login](./docs/screenshots/login.jpg) | ![Home](./docs/screenshots/home.png) |
+| **Emotion Garden** | **Empathic AI Chat (SSE streaming)** |
+| ![Garden](./docs/screenshots/garden.png) | ![AI Chat](./docs/screenshots/ai-chat.jpg) |
+
 ## Features
 
 ### User side

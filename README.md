@@ -31,6 +31,14 @@ MindMan 是一个面向普通用户的心理健康自助平台，同时提供运
 
 > ⚠️ **免责声明**：本项目定位为情绪记录与陪伴工具，**不提供任何医学诊断**。相关量表与 AI 回复仅供参考，不能替代专业心理诊疗。
 
+## 📷 项目预览
+
+| 登录页 | 首页洞察 |
+| --- | --- |
+| ![登录页](./docs/screenshots/login.jpg) | ![首页洞察](./docs/screenshots/home.png) |
+| **情绪花园** | **AI 共情咨询（SSE 流式）** |
+| ![情绪花园](./docs/screenshots/garden.png) | ![AI 咨询](./docs/screenshots/ai-chat.jpg) |
+
 ---
 
 ## 二、功能特性
