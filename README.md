@@ -11,6 +11,7 @@
 [![MySQL](https://img.shields.io/badge/MySQL-8.0-4479A1?logo=mysql&logoColor=white)](https://www.mysql.com/)
 [![Java](https://img.shields.io/badge/Java-17-007396?logo=openjdk&logoColor=white)](https://openjdk.org/)
 [![License](https://img.shields.io/badge/License-MIT-green)](./LICENSE)
+[![CI](https://github.com/OwenWhw/MindMan-MentalHealth-Assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/OwenWhw/MindMan-MentalHealth-Assistant/actions/workflows/ci.yml)
 
 [English](./README_EN.md) · [快速开始](#-快速开始) · [项目结构](#-项目结构) · [API 概览](#-api-概览)
 
