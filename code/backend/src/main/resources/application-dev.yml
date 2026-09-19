@@ -27,6 +27,8 @@ spring:
 
 # 阿里云百炼 AI 配置（OpenAI 兼容接口）
 ai:
+  # AI 通道选择：auto=云端优先自动切换 / cloud=强制云端 / ollama=强制本地模型
+  provider: ${AI_PROVIDER:auto}
   bailian:
     api-key: ${AI_BAILIAN_API_KEY:}
     base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
@@ -35,3 +37,19 @@ ai:
     temperature: 0.8
     connect-timeout: 10s
     read-timeout: 60s
+  # Ollama 本地模型（OpenAI 兼容 /v1 端点；先 ollama pull <model>，再置 enabled=true）
+  ollama:
+    enabled: ${AI_OLLAMA_ENABLED:false}
+    base-url: ${AI_OLLAMA_BASE_URL:http://localhost:11434/v1}
+    model: ${AI_OLLAMA_MODEL:qwen2.5:7b}
+    max-tokens: 2048
+    temperature: 0.8
+    connect-timeout: 5s
+    read-timeout: 120s
+  # RAG 检索增强（依赖 Ollama；需 ollama pull nomic-embed-text 建嵌入模型）
+  rag:
+    enabled: ${AI_RAG_ENABLED:false}
+    embedding-model: ${AI_RAG_EMBEDDING_MODEL:nomic-embed-text}
+    top-k: 3                # 检索返回片段数
+    min-score: 0.35         # 余弦相似度阈值
+    chunk-size: 500         # 文章分块长度（字符）

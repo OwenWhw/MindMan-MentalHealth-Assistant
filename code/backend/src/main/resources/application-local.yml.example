@@ -29,3 +29,11 @@ MYSQL_PASSWORD: "1234"
 REDIS_HOST: localhost
 REDIS_PORT: 6379
 REDIS_PASSWORD:
+
+# ===== AI 通道与 Ollama 本地模型（可选）=====
+# AI_PROVIDER: auto        # auto=云端优先 / cloud=强制云端 / ollama=强制本地
+# AI_OLLAMA_ENABLED: "true"  # 启用前先：ollama pull qwen2.5:7b
+# AI_OLLAMA_BASE_URL: http://localhost:11434/v1
+# AI_OLLAMA_MODEL: qwen2.5:7b
+# AI_RAG_ENABLED: "true"    # 启用 RAG（前置：AI_OLLAMA_ENABLED=true + ollama pull nomic-embed-text）
+# AI_RAG_EMBEDDING_MODEL: nomic-embed-text
