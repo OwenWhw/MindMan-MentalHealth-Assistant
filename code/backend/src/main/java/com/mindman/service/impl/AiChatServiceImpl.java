@@ -1,43 +1,33 @@
 package com.mindman.service.impl;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.mindman.ai.ChatClientRouter;
+import com.mindman.ai.ChatMessage;
+import com.mindman.ai.ChatOptions;
+import com.mindman.ai.RagService;
 import com.mindman.config.AiConfig;
 import com.mindman.service.AiChatService;
+import com.mindman.service.PromptTemplateService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.core.ParameterizedTypeReference;
-import org.springframework.http.codec.ServerSentEvent;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
-import org.springframework.web.reactive.function.BodyInserters;
-import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
 
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
- * 硅基流动 AI 聊天服务实现。
+ * AI 聊天服务实现（v2：经 {@link ChatClientRouter} 路由）。
  *
  * <h3>实现原理</h3>
  * <ul>
- *   <li>通过 {@link WebClient} 调用硅基流动 OpenAI 兼容接口（/v1/chat/completions）</li>
- *   <li><b>同步模式</b>：设置 stream=false，收集完整响应后返回字符串</li>
- *   <li><b>流式模式</b>：设置 stream=true，将 SSE 数据流转为 Flux&lt;String&gt;</li>
- *   <li>未配置 API Key 时自动降级为<b>本地模拟回复</b></li>
+ *   <li>对话调用统一走 {@link ChatClientRouter}：自动在云端（百炼/硅基流动）
+ *       与本地（Ollama OpenAI 兼容端点）之间选择通道，二者均为 SSE 流式</li>
+ *   <li>系统提示词从<b>提示词模板服务</b>（prompt_template 表，scene=chat_system）动态获取，
+ *       无生效模板时回退到 {@code ai.*.system-prompt} 内置配置</li>
+ *   <li>全部通道不可用时自动降级为<b>本地模拟回复</b>（打字机式伪流式）</li>
  * </ul>
- *
- * <h3>SSE 数据格式（硅基流动 / OpenAI 标准）</h3>
- * <pre>
- * data: {"choices":[{"delta":{"content":"你好"}}]}
- * data: {"choices":[{"delta":{"content":"！"}}]}
- * data: [DONE]
- * </pre>
  */
 @Slf4j
 @Service
@@ -45,29 +35,27 @@ import java.util.Map;
 public class AiChatServiceImpl implements AiChatService {
 
     private final AiConfig config;
-    private final WebClient webClient;
-    private final ObjectMapper objectMapper;
+    private final ChatClientRouter chatClientRouter;
+    private final PromptTemplateService promptTemplateService;
+    private final RagService ragService;
 
     // ======================== 同步模式 ========================
 
     @Override
     public String chatSync(String userMessage, String context, String model) {
-        if (!config.isConfigured()) {
-            log.warn("AI 未配置（API Key 为空），使用模拟回复");
+        if (chatClientRouter.current() == null) {
+            log.warn("AI 通道不可用（云端未配 Key 且 Ollama 未启用），使用模拟回复");
             return generateMockReply(userMessage);
         }
 
         try {
-            Map<String, Object> body = buildRequestBody(userMessage, context, false, model);
-
-            String rawJson = webClient.post()
-                    .uri("/chat/completions")
-                    .body(BodyInserters.fromValue(body))
-                    .retrieve()
-                    .bodyToMono(String.class)
-                    .block(config.getReadTimeout().plusSeconds(5));
-
-            return extractContentFromResponse(rawJson);
+            List<ChatMessage> messages = buildMessages(userMessage, context);
+            ChatOptions options = ChatOptions.builder()
+                    .model(isBlank(model) ? null : model)
+                    .maxTokens(config.getMaxTokens())
+                    .temperature(config.getTemperature())
+                    .build();
+            return chatClientRouter.call(messages, options);
         } catch (Exception e) {
             log.error("AI 同步调用失败: {}", e.getMessage(), e);
             return generateFallbackReply(userMessage);
@@ -78,28 +66,26 @@ public class AiChatServiceImpl implements AiChatService {
 
     @Override
     public Flux<String> chatStream(String userMessage, String context, String model) {
-        if (!config.isConfigured()) {
-            log.info("AI 未配置，使用模拟流式回复");
+        if (chatClientRouter.current() == null) {
+            log.info("AI 通道不可用，使用模拟流式回复");
             return mockStreamReply(userMessage);
         }
 
         try {
-            Map<String, Object> body = buildRequestBody(userMessage, context, true, model);
+            List<ChatMessage> messages = buildMessages(userMessage, context);
+            ChatOptions options = ChatOptions.builder()
+                    .model(isBlank(model) ? null : model)
+                    .maxTokens(config.getMaxTokens())
+                    .temperature(config.getTemperature())
+                    .build();
 
-            return webClient.post()
-                    .uri("/chat/completions")
-                    .body(BodyInserters.fromValue(body))
-                    .accept(MediaType.TEXT_EVENT_STREAM)
-                    .retrieve()
-                    // 使用 Spring 的 SSE 解码器逐事件解析，data() 即每条 data 负载（JSON 或 [DONE]）
-                    .bodyToFlux(new ParameterizedTypeReference<ServerSentEvent<String>>() {})
-                    .mapNotNull(ServerSentEvent::data)
-                    .takeUntil("[DONE]"::equals)             // 遇到 [DONE] 结束
-                    .flatMap(this::parseDeltaFromSseData)     // 解析 delta.content
-                    .doOnNext(chunk -> log.info("[AI-stream] chunk={}", chunk.length() > 60 ? chunk.substring(0, 60) + "..." : chunk))
-                    .doOnComplete(() -> log.info("[AI-stream] 完成"))
-                    .doOnError(e -> log.error("[AI-stream] 错误: {}", e.getMessage()))
-                    .switchIfEmpty(Flux.error(new RuntimeException("dashscope 返回空流")))
+            return chatClientRouter.stream(messages, options)
+                    .doOnNext(chunk -> {
+                        if (log.isDebugEnabled()) {
+                            log.debug("[AI-stream] chunk={}", chunk.length() > 60 ? chunk.substring(0, 60) + "..." : chunk);
+                        }
+                    })
+                    .doOnComplete(() -> log.info("[AI-stream] 完成（channel={}）", chatClientRouter.current().name()))
                     .onErrorResume(e -> {
                         log.warn("AI 流式异常，降级为模拟回复: {}", e.getMessage());
                         return mockStreamReply(userMessage);
@@ -113,84 +99,39 @@ public class AiChatServiceImpl implements AiChatService {
     // ======================== 内部方法 ========================
 
     /**
-     * 构建请求体（OpenAI 兼容格式）
+     * 构建消息列表：系统提示词（模板服务动态获取）+ 会话上下文摘要 + 用户消息
      */
-    private Map<String, Object> buildRequestBody(String userMessage, String context, boolean stream, String model) {
-        List<Map<String, String>> messages = new ArrayList<>();
+    private List<ChatMessage> buildMessages(String userMessage, String context) {
+        List<ChatMessage> messages = new ArrayList<>();
 
-        // 系统提示词
-        messages.add(Map.of("role", "system", "content", config.getSystemPrompt()));
+        // 系统提示词：优先取 prompt_template 表 chat_system 场景的生效模板，缺失回退内置配置
+        String systemPrompt = promptTemplateService.render(
+                PromptTemplateService.SCENE_CHAT_SYSTEM, Map.of(), config::getSystemPrompt);
+        messages.add(ChatMessage.system(systemPrompt));
 
-        // 会话上下文（如果有）
-        if (context != null && !context.isBlank()) {
-            // 将上下文拆分为用户/AI交替消息，这里简化为一条 assistant 摘要
-            messages.add(Map.of("role", "assistant",
-                    "content", "以下是之前的对话摘要，请基于此继续对话：\n" + context));
+        // RAG：检索知识库相关片段作为附加上下文（未启用/未索引/失败时静默跳过）
+        String ragContext = ragService.buildContext(userMessage);
+        if (ragContext != null && !ragContext.isBlank()) {
+            messages.add(ChatMessage.assistant(ragContext));
         }
 
-        // 当前用户消息
-        messages.add(Map.of("role", "user", "content", userMessage));
-
-        Map<String, Object> body = new HashMap<>();
-        body.put("model", model != null && !model.isBlank() ? model : config.getModel());
-        body.put("messages", messages);
-        body.put("max_tokens", config.getMaxTokens());
-        body.put("temperature", config.getTemperature());
-        body.put("stream", stream);
-        // 不使用 top_p，让 temperature 完全控制随机性
-        return body;
-    }
-
-    /**
-     * 从同步响应 JSON 中提取 content 文本
-     */
-    private String extractContentFromResponse(String rawJson) {
-        try {
-            JsonNode root = objectMapper.readTree(rawJson);
-            JsonNode choices = root.path("choices");
-            if (choices.isArray() && choices.size() > 0) {
-                return stripThink(choices.get(0).path("message").path("content").asText(""));
-            }
-        } catch (Exception e) {
-            log.warn("解析 AI 响应 JSON 失败: {}", e.getMessage());
+        // 会话上下文摘要
+        if (!isBlank(context)) {
+            messages.add(ChatMessage.assistant("以下是之前的对话摘要，请基于此继续对话：\n" + context));
         }
-        return "";
+
+        messages.add(ChatMessage.user(userMessage));
+        return messages;
     }
 
-    /**
-     * 从 SSE data 行解析 delta.content
-     *
-     * @param sseData 如: {"id":"...","choices":[{"delta":{"content":"你好"}}]}
-     * @return Mono&lt;String&gt; 发出 delta 的内容片段；空 delta 则发出空 Mono
-     */
-    private Mono<String> parseDeltaFromSseData(String sseData) {
-        try {
-            JsonNode root = objectMapper.readTree(sseData);
-            JsonNode choices = root.path("choices");
-            if (choices.isArray() && choices.size() > 0) {
-                String content = choices.get(0).path("delta").path("content").asText("");
-                if (!content.isEmpty()) {
-                    return Mono.just(stripThink(content));
-                }
-            }
-        } catch (Exception ignored) {
-            // 某些行可能不是有效 JSON（如 [DONE] 已被 takeUntil 过滤），忽略
-        }
-        return Mono.empty();
-    }
-
-    /**
-     * 去掉模型回复中的 <think>...</think> 推理过程，只保留正式回答
-     */
-    private String stripThink(String content) {
-        if (content == null) return "";
-        return content.replaceAll("(?s)<think>.*?</think>", "").trim();
+    private boolean isBlank(String s) {
+        return s == null || s.isBlank();
     }
 
     // ======================== 降级 / 模拟回复 ========================
 
     /**
-     * 本地模拟回复（当 AI 未配置或调用失败时降级使用）
+     * 本地模拟回复（当 AI 通道不可用或调用失败时降级使用）
      */
     private String generateMockReply(String userMessage) {
         String lower = userMessage.toLowerCase();

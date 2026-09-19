@@ -37,6 +37,16 @@ public class AiConfig {
     private String apiKey = "";
     private String baseUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1";
     private String model = "qwen3.8-max";
+
+    /**
+     * AI 通道选择：
+     * <ul>
+     *   <li>{@code auto}（默认）：云端已配 key 则走云端，否则走 Ollama 本地（若启用）</li>
+     *   <li>{@code cloud}：强制云端</li>
+     *   <li>{@code ollama}：强制 Ollama 本地模型</li>
+     * </ul>
+     */
+    private String provider = "auto";
     private int maxTokens = 2048;
     private double temperature = 0.8;
     private Duration connectTimeout = Duration.ofSeconds(10);
