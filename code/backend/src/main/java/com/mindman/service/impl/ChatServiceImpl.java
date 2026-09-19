@@ -20,6 +20,7 @@ import com.mindman.mapper.ChatSessionMapper;
 import com.mindman.mapper.UserMapper;
 import com.mindman.service.AiChatService;
 import com.mindman.service.ChatService;
+import com.mindman.util.EmotionAnalyzer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -144,7 +145,7 @@ public class ChatServiceImpl implements ChatService {
 
         // ── 2. 调用 AI 服务生成回复（同步模式）──
         String aiReply = aiChatService.chatSync(dto.getContent(), buildContext(session.getId()), dto.getModel());
-        String emotion = analyzeEmotion(dto.getContent());
+        String emotion = EmotionAnalyzer.analyze(dto.getContent());
 
         // ── 3. 保存 AI 回复 ──
         ChatMessage aiMsg = saveAiMessage(session.getId(), userId, aiReply, emotion);
@@ -373,31 +374,8 @@ public class ChatServiceImpl implements ChatService {
     }
 
     /**
-     * 情绪分析（关键词匹配）。
-     * 后续可替换为情感分析模型或 AI 内置的情绪判断。
+     * 情绪分析已统一使用 EmotionAnalyzer 工具类，不再需要此方法。
      */
-    private String analyzeEmotion(String userContent) {
-        String content = userContent.toLowerCase();
-        if (content.contains("焦虑") || content.contains("紧张") || content.contains("担心")
-                || content.contains("害怕") || content.contains("恐慌")) {
-            return "焦虑";
-        }
-        if (content.contains("难过") || content.contains("抑郁") || content.contains("伤心")
-                || content.contains("痛苦") || content.contains("绝望")) {
-            return "低落";
-        }
-        if (content.contains("开心") || content.contains("高兴") || content.contains("快乐")
-                || content.contains("愉快") || content.contains("兴奋")) {
-            return "愉悦";
-        }
-        if (content.contains("愤怒") || content.contains("生气") || content.contains("烦躁")) {
-            return "愤怒";
-        }
-        if (content.contains("失眠") || content.contains("睡不着") || content.contains("困倦")) {
-            return "疲惫";
-        }
-        return "平静";
-    }
 
     // ======================== VO 转换 ========================
 

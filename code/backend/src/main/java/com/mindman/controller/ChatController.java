@@ -11,6 +11,7 @@ import com.mindman.entity.ChatSession;
 import com.mindman.mapper.ChatMessageMapper;
 import com.mindman.service.AiChatService;
 import com.mindman.service.ChatService;
+import com.mindman.util.EmotionAnalyzer;
 import com.mindman.util.LoginUser;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -308,17 +309,10 @@ public class ChatController {
     }
 
     /**
-     * 关键词情绪分析（轻量级，与 ChatServiceImpl 保持一致）
+     * 关键词情绪分析（统一使用 EmotionAnalyzer 工具类）
      */
     private String analyzeEmotion(String content) {
-        if (content == null) return "平静";
-        String lower = content.toLowerCase();
-        if (lower.contains("焦虑") || lower.contains("紧张") || lower.contains("担心")) return "焦虑";
-        if (lower.contains("难过") || lower.contains("抑郁") || lower.contains("伤心")) return "低落";
-        if (lower.contains("开心") || lower.contains("高兴")) return "愉悦";
-        if (lower.contains("愤怒") || lower.contains("生气")) return "愤怒";
-        if (lower.contains("失眠") || lower.contains("睡不着")) return "疲惫";
-        return "平静";
+        return EmotionAnalyzer.analyze(content);
     }
 
     /**
