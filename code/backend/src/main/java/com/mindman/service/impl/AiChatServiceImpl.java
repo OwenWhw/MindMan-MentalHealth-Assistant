@@ -85,7 +85,7 @@ public class AiChatServiceImpl implements AiChatService {
                             log.debug("[AI-stream] chunk={}", chunk.length() > 60 ? chunk.substring(0, 60) + "..." : chunk);
                         }
                     })
-                    .doOnComplete(() -> log.info("[AI-stream] 完成（channel={}）", chatClientRouter.current().name()))
+                    .doOnComplete(() -> log.info("[AI-stream] 完成"))
                     .onErrorResume(e -> {
                         log.warn("AI 流式异常，降级为模拟回复: {}", e.getMessage());
                         return mockStreamReply(userMessage);
