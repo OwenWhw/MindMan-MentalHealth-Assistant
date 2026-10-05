@@ -1,0 +1,19 @@
+# Temporary, free frontend preview. No database or real model service is created.
+services:
+  - type: web
+    name: mindman-preview
+    runtime: static
+    rootDir: code/ai-vue
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: VITE_API_MODE
+        value: mock
+      - key: VITE_PUBLIC_DEMO
+        value: "true"
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

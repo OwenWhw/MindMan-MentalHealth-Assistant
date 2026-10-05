@@ -699,8 +699,8 @@ export async function mockSendChatMessage(sessionId, content) {
     messageId: Date.now(),
     sessionId: Number(sessionId),
     role: 'assistant',
-    content: reply,
-    cards,
+    content: import.meta.env?.VITE_PUBLIC_DEMO === 'true' ? `演示回复（未调用大模型）\n\n${reply}` : reply,
+    cards: import.meta.env?.VITE_PUBLIC_DEMO === 'true' ? [] : cards,
     createdAt: `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`
   }
 }

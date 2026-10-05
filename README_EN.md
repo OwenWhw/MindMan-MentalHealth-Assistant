@@ -54,6 +54,8 @@ AI features require a reachable cloud model or local Ollama service. A cloud-hos
 
 See the [setup guide](./docs/developer-guide.md), [deployment guide](./deploy/部署手册.md), and [optional Python Agent guide](./code/python-agent/README.md).
 
+[Version 1.1.0 release notes](./docs/releases/v1.1.0.md) and a [free Render frontend preview configuration](./deploy/render-preview.md) are included. Preview mode is labeled and does not connect to a real model or cloud database.
+
 ## Your data
 
 Records and conversations are managed by account. Administrators can access records through the management console. Cloud model requests send the selected content to the configured model provider; avoid submitting unnecessary sensitive information.

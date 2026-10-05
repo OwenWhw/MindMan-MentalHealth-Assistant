@@ -291,5 +291,3 @@ location / {
 ## 十一、License
 
 [MIT](../LICENSE) © 2026 魏浩文
-
-

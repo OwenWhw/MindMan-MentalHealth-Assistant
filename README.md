@@ -8,7 +8,7 @@
 
 一个把 AI 倾听、情绪分析、心情记录和心理阅读连接起来的日常陪伴空间。
 
-[用户指南](./docs/user-guide.md) · [页面预览](#页面预览) · [安装与部署](./docs/developer-guide.md) · [English](./README_EN.md)
+[用户指南](./docs/user-guide.md) · [页面预览](#页面预览) · [版本更新](./docs/releases/v1.1.0.md) · [安装与部署](./docs/developer-guide.md) · [English](./README_EN.md)
 
 </div>
 
@@ -92,6 +92,8 @@ MindMan 支持调用云端模型或 Ollama 本地模型。AI 对话、分析、�
 如果模型运行在个人电脑上，而网站与后端部署在云端，还需要配置两端的安全网络连接。电脑关机、休眠或模型服务停止时，依赖该模型的 AI 功能暂不可用；网站与已保存的数据仍由云端服务提供。
 
 部署前请阅读 [开发与部署说明](./docs/developer-guide.md) 和 [阿里云部署手册](./deploy/部署手册.md)。混合部署需要额外配置网络和模型地址，并非默认开箱即用。
+
+购买服务器前，可以使用 [Render 免费预览配置](./deploy/render-preview.md) 展示前端。该模式会明确标注演示状态，不连接真实 AI 或云端数据库。
 
 ## 关于你的记录
 
