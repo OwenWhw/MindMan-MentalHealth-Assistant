@@ -48,7 +48,7 @@ Screenshots show the current frontend with demonstration accounts, entries, arti
 
 ## Getting started
 
-There is currently no verified public demo URL. Deploy the application, register an account, and start with a mood entry or a conversation.
+Try the [online frontend preview](https://mindman-preview.onrender.com/) with the prefilled `demo / 123456` account. This demo uses simulated interactions and has no real AI or cloud database. Deploy the complete application for real records and model-backed features.
 
 AI features require a reachable cloud model or local Ollama service. A cloud-hosted website can connect to a model running on a personal computer, but this needs additional secure network configuration. AI features become unavailable when that computer is offline or asleep.
 

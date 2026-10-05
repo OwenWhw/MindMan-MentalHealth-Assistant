@@ -8,7 +8,7 @@
 
 一个把 AI 倾听、情绪分析、心情记录和心理阅读连接起来的日常陪伴空间。
 
-[用户指南](./docs/user-guide.md) · [页面预览](#页面预览) · [版本更新](./docs/releases/v1.1.0.md) · [安装与部署](./docs/developer-guide.md) · [English](./README_EN.md)
+[在线预览](https://mindman-preview.onrender.com/) · [用户指南](./docs/user-guide.md) · [页面预览](#页面预览) · [版本更新](./docs/releases/v1.1.0.md) · [安装与部署](./docs/developer-guide.md) · [English](./README_EN.md)
 
 </div>
 
@@ -83,7 +83,7 @@
 4. 找到喜欢的文章后，选择 **带去倾听空间**，继续阅读与讨论。
 5. 想休息时，进入 **放松片刻** 选择一段声音。
 
-更详细的操作说明见 [用户指南](./docs/user-guide.md)。当前未提供可确认在线的公开体验地址，可以自行部署后使用。
+更详细的操作说明见 [用户指南](./docs/user-guide.md)。[在线预览](https://mindman-preview.onrender.com/) 可使用已填入的 `demo / 123456` 演示账号进入。预览仅展示页面与模拟交互，未连接真实 AI 或云端数据库；完整功能需要自行部署。
 
 ## 运行与可用性
 

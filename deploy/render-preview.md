@@ -1,6 +1,7 @@
 # Render 临时页面预览
 
 这个方案只发布前端演示，不创建 Java 后端、MySQL 或真实模型服务。
+当前预览地址：[https://mindman-preview.onrender.com/](https://mindman-preview.onrender.com/)。
 登录页的 `demo / 123456` 是浏览器模拟账号；不要输入真实账号密码或私人记录。
 数据使用模拟逻辑，其中部分保存在当前浏览器，其他部分刷新后重置，没有云端持久化保障。
 
