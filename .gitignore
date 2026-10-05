@@ -18,6 +18,7 @@ nohup.out
 **/application-local.yaml
 .env.local
 .env.*.local
+.env
 
 # ===== IDE / 编辑器 =====
 .idea/
@@ -50,3 +51,17 @@ cf_ver.txt
 
 # ===== 本地交付压缩包（不入库，见 GitHub Release）=====
 /MindMan-*.zip
+/MindMan-*.tar.gz
+/deploy/backups/
+/docs/agent-reports/
+/docs/测试报告-接口*.json
+
+# ===== Python 本地环境 =====
+**/.venv/
+**/__pycache__/
+*.pyc
+
+# ===== 综合测试本地依赖与报告 =====
+/tests/node_modules/
+/test-results/integration/
+/test-results/cleanup/

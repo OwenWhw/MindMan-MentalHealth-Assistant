@@ -1,5 +1,6 @@
 package com.mindman.task;
 
+import com.mindman.config.CrawlerProperties;
 import com.mindman.service.RealtimeCrawlerService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -9,7 +10,7 @@ import org.springframework.stereotype.Component;
 /**
  * 实时心理文章定时爬取任务。
  *
- * <p>默认 <strong>每天凌晨 04:30</strong> 执行一次，每次尝试入库 3-5 篇。</p>
+ * <p>默认每天凌晨 04:30 同步官方 RSS，每个来源每天最多检查一次。</p>
  *
  * <p>可调参（application-dev.yml / -D）：</p>
  * <ul>
@@ -24,13 +25,19 @@ import org.springframework.stereotype.Component;
 public class CrawlTask {
 
     private final RealtimeCrawlerService crawlerService;
+    private final CrawlerProperties properties;
 
     /** 每天 04:30 跑一次。生产可改为 cron 表达式 */
-    @Scheduled(cron = "0 30 4 * * ?")
+    @Scheduled(cron = "${mindman.crawler.cron:0 30 4 * * ?}", zone = "${mindman.crawler.zone:Asia/Shanghai}")
     public void dailyCrawl() {
+        if (!properties.isEnabled()) {
+            log.info("Daily article feed sync is disabled");
+            return;
+        }
         try {
-            int n = crawlerService.crawlOnce(4);
-            log.info("DailyCrawlTask done. saved={}", n);
+            var result = crawlerService.crawlDetailed(properties.getDailyLimit(), "scheduled");
+            log.info("Daily article feed sync done. status={} imported={} updated={} failed={}",
+                    result.status(), result.importedCount(), result.updatedCount(), result.failedCount());
         } catch (Exception e) {
             log.error("DailyCrawlTask error: {}", e.getMessage(), e);
         }

@@ -3,18 +3,11 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import AppNavBar from '@/components/AppNavBar.vue'
 import UserDropdown from '@/components/UserDropdown.vue'
+import { USER_NAV_ACTIONS } from '@/constants/userNavigation'
 import { usePlayerStore, NOISE_PRESETS } from '@/stores/player'
 
 const route = useRoute()
 const store = usePlayerStore()
-
-const navActions = [
-  { key: 'consult',  title: 'AI 咨询',  icon: 'ChatDotRound', path: '/consult' },
-  { key: 'garden',   title: '情绪花园', icon: 'Cherry',       path: '/garden' },
-  { key: 'articles', title: '知识文章', icon: 'Collection',   path: '/home/articles' },
-  { key: 'relax',    title: '白噪音空间', icon: 'WindPower',   path: '/relax' },
-  { key: 'home',     title: '回到主页', icon: 'HomeFilled',   path: '/home' }
-]
 
 /** 播放白噪音（store 统一引擎 + 浮球） */
 function playNoise(p) {
@@ -103,19 +96,14 @@ onMounted(() => {
       <canvas ref="waveCanvas" class="bg-wave"></canvas>
     </div>
 
-    <AppNavBar :actions="navActions" :current-path="route.path">
-      <template #brand>
-        <router-link to="/relax" class="relax-brand">
-          <span class="relax-name">白噪音空间</span>
-          <span class="relax-sub">让声音治愈每一刻</span>
-        </router-link>
-      </template>
+    <AppNavBar :actions="USER_NAV_ACTIONS" :current-path="route.path">
       <template #actions-after>
         <UserDropdown />
       </template>
     </AppNavBar>
 
     <main class="relax-wrap">
+      <div class="relax-intro"><div class="relax-intro-top"><span>声音陪伴</span><p class="relax-whisper" aria-hidden="true">breathe in, let go.</p></div><h1>让世界，<em>安静一点。</em></h1><p>雨声、海浪、风穿过树叶。挑一个喜欢的声音，给自己片刻留白。</p></div>
       <div class="panel-head">
         <h2 class="sec-title">选择一段声音</h2>
         <span class="panel-hint">点击播放 · 再点暂停</span>
@@ -162,11 +150,6 @@ onMounted(() => {
     linear-gradient(180deg, #f6faf9 0%, #eef6f3 52%, #f8fafc 100%);
 }
 
-/* ═══ NavBar brand（白噪音空间） ═══ */
-.relax-brand { display: flex; flex-direction: column; gap: 2px; text-decoration: none; }
-.relax-name { font-size: 18px; font-weight: 800; color: #111827; letter-spacing: 1px; }
-.relax-sub  { font-size: 11px; color: #94a3b8; letter-spacing: 0.5px; }
-
 /* ═══ 背景动效层（fixed 全屏，pointer-events:none 不阻挡交互） ═══ */
 .relax-bg {
   position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 0;
@@ -180,6 +163,15 @@ onMounted(() => {
 
 /* ═══ 内容层（在背景之上） ═══ */
 .relax-wrap { position: relative; z-index: 1; max-width: 980px; margin: 0 auto; padding: 96px 28px 72px; }
+.relax-intro{border-top:1px solid #c8d7c8;padding:28px 0 33px;margin-bottom:27px;animation:relax-enter .8s ease-out both}
+.relax-intro-top>span{display:block;color:#56795e;font-size:12px;font-weight:600;letter-spacing:.07em}
+.relax-intro-top{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}
+.relax-intro-top .relax-whisper{margin:0 clamp(0px,4vw,40px) 0 0;padding-bottom:3px;color:#a5bb9f;font:italic 500 clamp(20px,2.2vw,25px)/1.12 Georgia,'Noto Serif SC',serif;letter-spacing:-.05em;white-space:nowrap}
+.relax-intro h1{font:500 clamp(35px,4vw,54px)/1.25 'Noto Serif SC',Georgia,serif;letter-spacing:-.06em;color:#2d4936;margin:15px 0 10px;text-wrap:balance}
+.relax-intro h1 em{font-style:normal;color:#779478}.relax-intro p{color:#607465;font-size:13px;line-height:1.8;max-width:470px;margin:0}
+.noise-card{border-radius:4px !important}.noise-card:active{transform:translateY(0) scale(.99)}
+@keyframes relax-enter{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
+@media(prefers-reduced-motion:reduce){.relax-intro{animation:none}}
 
 .panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
 .sec-title { margin: 0; font-size: 20px; font-weight: 800; color: #111827; }

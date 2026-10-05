@@ -45,7 +45,7 @@ const initial = computed(() => (props.name || 'U').charAt(0).toUpperCase())
 
 .user-avatar {
   flex-shrink: 0;
-  background: #2f6fdb;
+  background: #547b5a;
   color: #fff;
   font-weight: 600;
 }
@@ -60,7 +60,7 @@ const initial = computed(() => (props.name || 'U').charAt(0).toUpperCase())
 .user-name {
   font-size: 13px;
   font-weight: 500;
-  color: #1f2937;
+  color: #304a36;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -68,6 +68,6 @@ const initial = computed(() => (props.name || 'U').charAt(0).toUpperCase())
 
 .user-id {
   font-size: 11px;
-  color: #9ca3af;
+  color: #90a092;
 }
 </style>

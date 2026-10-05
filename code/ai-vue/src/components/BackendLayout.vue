@@ -28,12 +28,12 @@ import Navbar from './Navbar.vue'
   display: flex;
   flex-direction: column;
   min-width: 0;
-  background-color: #f8fafc;
+  background-color: #f8f7f2;
 }
 
 .main-content {
   flex: 1;
-  padding: 24px;
+  padding: 28px;
   overflow-y: auto;
 }
 </style>

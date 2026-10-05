@@ -8,6 +8,7 @@ import {
 } from '@/api/knowledge'
 import AppNavBar from '@/components/AppNavBar.vue'
 import UserDropdown from '@/components/UserDropdown.vue'
+import { USER_NAV_ACTIONS } from '@/constants/userNavigation'
 
 const route = useRoute()
 const router = useRouter()
@@ -22,13 +23,6 @@ const pageSize = 8
 const categories = ref([])
 const activeCat = ref(null) // null = 全部
 const keyword = ref('')
-
-const navActions = [
-  { key: 'consult', title: 'AI 咨询', icon: 'ChatDotRound', path: '/consult' },
-  { key: 'garden',  title: '情绪花园', icon: 'Cherry',       path: '/garden' },
-  { key: 'relax',   title: '白噪音空间', icon: 'WindPower',  path: '/relax' },
-  { key: 'home',    title: '回到主页', icon: 'HomeFilled',   path: '/home' }
-]
 
 async function loadCategories() {
   try {
@@ -96,13 +90,7 @@ const empty = computed(() => !loading.value && !articles.value.length)
 <template>
   <div class="articles-page">
     <!-- 顶部导航 -->
-    <AppNavBar :actions="navActions" :current-path="route.path">
-      <template #brand>
-        <router-link to="/home/articles" class="art-brand">
-          <span class="art-name">知识文章</span>
-          <span class="art-sub">用知识温暖每一颗心</span>
-        </router-link>
-      </template>
+    <AppNavBar :actions="USER_NAV_ACTIONS" :current-path="route.path">
       <template #extra>
         <div class="nav-search">
           <el-input
@@ -121,6 +109,12 @@ const empty = computed(() => !loading.value && !articles.value.length)
         <UserDropdown />
       </template>
     </AppNavBar>
+
+    <section class="editorial-intro" aria-labelledby="reading-title">
+      <div class="editorial-index">心理阅读</div>
+      <div class="editorial-copy"><h1 id="reading-title">读一点，<em>听见自己。</em></h1><p>从情绪、关系到日常生活，挑一篇文章，给自己一段安静的阅读时间。</p></div>
+      <span class="editorial-stamp" aria-hidden="true">read<br>slowly.</span>
+    </section>
 
     <!-- 主体 -->
     <div class="page-body">
@@ -225,11 +219,7 @@ const empty = computed(() => !loading.value && !articles.value.length)
   background: linear-gradient(180deg, #f0f7ff 0%, #eaf4ff 55%, #f8fafc 100%);
 }
 
-/* ===== 文章品牌 + 搜索 ===== */
-.art-brand { display: flex; flex-direction: column; gap: 2px; text-decoration: none; }
-.art-name { font-size: 18px; font-weight: 800; color: #111827; letter-spacing: 1px; }
-.art-sub  { font-size: 11px; color: #94a3b8; letter-spacing: 0.5px; }
-
+/* ===== 文章搜索 ===== */
 .nav-search { flex: 1; min-width: 120px; max-width: 360px; }
 .nav-search :deep(.el-input__wrapper) {
   background: rgba(255, 255, 255, 0.65);
@@ -331,6 +321,23 @@ const empty = computed(() => !loading.value && !articles.value.length)
   box-shadow: 0 16px 40px rgba(16, 185, 129, 0.18);
   border-color: rgba(16, 185, 129, 0.5);
 }
+
+.editorial-intro{position:relative;max-width:1124px;margin:92px auto 0;padding:31px 26px 35px;display:grid;grid-template-columns:185px 1fr 120px;gap:20px;align-items:start;border-top:1px solid #cbd8ca;border-bottom:1px solid #e5e9df;animation:editorial-enter .8s ease-out both}
+.editorial-index{font-size:12px;letter-spacing:.08em;font-weight:600;color:#5e8064;padding-top:9px}.editorial-index span{color:#bc8d77;padding:0 4px}
+.editorial-copy h1{font:500 clamp(34px,3.7vw,53px)/1.24 'Noto Serif SC',Georgia,serif;letter-spacing:-.06em;color:#2d4936;margin:0;text-wrap:balance}.editorial-copy h1 em{font-style:normal;color:#729073}.editorial-copy p{margin:16px 0 0;color:#667c6b;font-size:13px;line-height:1.8;max-width:480px}
+.editorial-stamp{font:italic 500 26px/1.12 Georgia,serif;letter-spacing:-.06em;color:#b2c5ac;transform:rotate(-10deg);text-align:right;padding:14px 0 .08em}
+.page-body{padding-top:27px}
+.article-card{border-radius:4px;transition:transform .28s ease,box-shadow .28s ease}
+.article-card:hover{border-color:#bdd0bc;transform:translateY(-5px)}
+.article-card:active{transform:translateY(0)}
+.cat-rail{border-radius:4px}
+.card-title{font-family:'Noto Serif SC',Georgia,serif;letter-spacing:-.025em;text-wrap:balance}
+@keyframes editorial-enter{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+@media(max-width:900px){.editorial-intro{margin:85px 25px 0;grid-template-columns:1fr}.editorial-index{padding-top:0}.editorial-stamp{display:none}.page-body{padding-top:23px}}
+@media(max-width:600px){.editorial-intro{margin:77px 15px 0;padding:22px 7px 25px}.editorial-copy h1{font-size:35px}.editorial-copy p{font-size:12px}.page-body{padding-top:17px}}
+@media(prefers-reduced-motion:reduce){.editorial-intro{animation:none}}
+@media(max-width:900px){.editorial-intro{position:relative;padding-right:105px}.editorial-stamp{display:block;position:absolute;top:18px;right:8px;font-size:19px}}
+@media(max-width:600px){.editorial-intro{padding-right:83px}.editorial-stamp{top:28px;right:2px;font-size:15px}}
 
 .card-cover {
   position: relative;
@@ -437,17 +444,16 @@ const empty = computed(() => !loading.value && !articles.value.length)
 /* iPhone 窄屏：隐藏搜索、紧凑留白，UI 不变仅防错乱 */
 @media (max-width: 520px) {
   .articles-page {
+    min-height: 100dvh;
     height: 100dvh;
   }
 
-  .nav-search {
-    display: none;
-  }
-
   .page-body {
-    padding: 84px 12px 36px;
+    padding: 17px 12px 36px;
     gap: 14px;
   }
+
+  .nav-search :deep(.el-input__wrapper) { min-height: 34px; }
 
   .cat-rail {
     padding: 12px;
@@ -458,7 +464,7 @@ const empty = computed(() => !loading.value && !articles.value.length)
   }
 
   .article-card {
-    border-radius: 16px;
+    border-radius: 4px;
   }
 }
 </style>

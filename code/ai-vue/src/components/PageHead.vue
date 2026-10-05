@@ -33,8 +33,9 @@ defineProps({
 }
 .page-head h2 {
   margin: 0;
-  font-size: 20px;
-  color: #1f2937;
+  font-size: 24px;
+  font-family: 'Noto Serif SC', Georgia, serif;
+  color: #2d4836;
   display: flex;
   align-items: center;
   gap: 8px;

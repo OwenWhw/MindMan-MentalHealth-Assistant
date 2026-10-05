@@ -1,0 +1,12 @@
+# 构建镜像时排除（注意：不要排除 .env，前端构建需要它决定 API 模式）
+node_modules/
+dist/
+dist-preview/
+.git/
+.gitignore
+.vscode/
+.idea/
+serve-preview.mjs
+README.md
+Dockerfile
+.dockerignore

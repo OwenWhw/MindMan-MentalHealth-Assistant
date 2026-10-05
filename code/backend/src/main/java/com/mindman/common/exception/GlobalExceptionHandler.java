@@ -6,6 +6,7 @@ import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.BindException;
 import org.springframework.validation.FieldError;
@@ -39,9 +40,21 @@ public class GlobalExceptionHandler {
     // ═══════════ 业务异常 ═══════════
 
     @ExceptionHandler(BizException.class)
-    public R<?> handleBiz(BizException e) {
+    public ResponseEntity<R<?>> handleBiz(BizException e) {
         log.warn("业务异常 [{}]: {}", e.getCode(), e.getMessage());
-        return R.error(e.getCode(), e.getMessage());
+        HttpStatus status = resolveHttpStatus(e.getCode());
+        return ResponseEntity.status(status).body(R.error(e.getCode(), e.getMessage()));
+    }
+
+    private HttpStatus resolveHttpStatus(int businessCode) {
+        // 扩展业务码保留在 JSON 中，HTTP 层使用标准状态码。
+        int httpCode = switch (businessCode) {
+            case 40101 -> HttpStatus.UNAUTHORIZED.value();
+            case 40301 -> HttpStatus.FORBIDDEN.value();
+            default -> businessCode;
+        };
+        HttpStatus status = HttpStatus.resolve(httpCode);
+        return status != null && httpCode >= 400 ? status : HttpStatus.INTERNAL_SERVER_ERROR;
     }
 
     // ═══════════ 参数校验异常 ═══════════

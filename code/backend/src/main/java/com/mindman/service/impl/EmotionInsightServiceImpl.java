@@ -60,6 +60,7 @@ public class EmotionInsightServiceImpl implements EmotionInsightService {
 
         // 3. 情绪分均值 / 峰值
         List<Integer> scores = thisWeek.stream()
+                .filter(record -> EmotionRecord.RATING_SOURCE_SELF_REPORTED.equals(record.getRatingSource()))
                 .map(EmotionRecord::getEmotionScore).filter(Objects::nonNull).toList();
         if (!scores.isEmpty()) {
             double avg = scores.stream().mapToInt(Integer::intValue).average().orElse(0);
@@ -89,6 +90,7 @@ public class EmotionInsightServiceImpl implements EmotionInsightService {
             }
             LocalDate finalDay = day;
             OptionalDouble avg = thisWeek.stream()
+                    .filter(r -> EmotionRecord.RATING_SOURCE_SELF_REPORTED.equals(r.getRatingSource()))
                     .filter(r -> Objects.equals(r.getRecordDate(), finalDay))
                     .map(EmotionRecord::getEmotionScore)
                     .filter(Objects::nonNull)

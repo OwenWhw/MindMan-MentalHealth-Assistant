@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 220" role="img" aria-label="coffee abstract artwork">
+<defs><linearGradient id="bg" x2="1" y2="1"><stop stop-color="#eee2ce"/><stop offset="1" stop-color="#d9b99b"/></linearGradient><linearGradient id="subject" x2="0" y2="1"><stop stop-color="#d9b99b"/><stop offset="1" stop-color="#97775c"/></linearGradient></defs>
+<rect width="320" height="220" fill="url(#bg)"/><circle cx="252" cy="53" r="59" fill="#fff" opacity=".32"/><circle cx="59" cy="180" r="80" fill="#97775c" opacity=".09"/>
+<path d="M75 78h142v83c0 18-15 32-34 32h-74c-19 0-34-14-34-32V78Zm142 19h27c34 0 22 48-27 48" fill="url(#subject)" opacity=".78"/><path d="M118 43q-15 12 0 26m39-30q-15 15 0 28" fill="none" stroke="#97775c" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" opacity=".58"/>
+<path d="M0 207h320" stroke="#fff" stroke-opacity=".6" stroke-width="2"/></svg>

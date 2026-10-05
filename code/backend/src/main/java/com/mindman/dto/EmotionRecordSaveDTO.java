@@ -3,6 +3,7 @@ package com.mindman.dto;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
@@ -23,16 +24,19 @@ public class EmotionRecordSaveDTO {
     private String content;
 
     /** 情绪评分 1-5 */
+    @NotNull(message = "请按自己的感受选择情绪评分")
     @Min(1)
     @Max(5)
     private Integer emotionScore;
 
     /** 睡眠质量评分 1-5 */
+    @NotNull(message = "请按自己的感受选择睡眠评分")
     @Min(1)
     @Max(5)
     private Integer sleepScore;
 
     /** 压力水平评分 1-5 */
+    @NotNull(message = "请按自己的感受选择压力评分")
     @Min(1)
     @Max(5)
     private Integer stressScore;

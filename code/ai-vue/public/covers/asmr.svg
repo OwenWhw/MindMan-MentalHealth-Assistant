@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 220" role="img" aria-label="asmr abstract artwork">
+<defs><linearGradient id="bg" x2="1" y2="1"><stop stop-color="#eee0e3"/><stop offset="1" stop-color="#cbb4bd"/></linearGradient><linearGradient id="subject" x2="0" y2="1"><stop stop-color="#cbb4bd"/><stop offset="1" stop-color="#8b7984"/></linearGradient></defs>
+<rect width="320" height="220" fill="url(#bg)"/><circle cx="252" cy="53" r="59" fill="#fff" opacity=".32"/><circle cx="59" cy="180" r="80" fill="#8b7984" opacity=".09"/>
+<path d="M160 48c-48 0-69 34-69 75s30 67 69 67 69-27 69-67-21-75-69-75Z" fill="url(#subject)" opacity=".78"/><path d="M135 96q25-25 50 0m-50 30q25 25 50 0" fill="none" stroke="#8b7984" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" opacity=".58"/>
+<path d="M0 207h320" stroke="#fff" stroke-opacity=".6" stroke-width="2"/></svg>

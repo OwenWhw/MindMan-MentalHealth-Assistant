@@ -14,6 +14,8 @@ import com.mindman.mapper.ArticleCategoryMapper;
 import com.mindman.mapper.ArticleMapper;
 import com.mindman.service.ArticleCategoryService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -32,6 +34,7 @@ public class ArticleCategoryServiceImpl implements ArticleCategoryService {
     private final ArticleMapper articleMapper;
 
     @Override
+    @Cacheable(cacheNames = "knowledge:category-tree", key = "'enabled-tree'")
     public List<ArticleCategoryVO> listTree() {
         // 1. 取所有启用分类
         List<ArticleCategory> categories = categoryMapper.selectList(
@@ -128,6 +131,7 @@ public class ArticleCategoryServiceImpl implements ArticleCategoryService {
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = "knowledge:category-tree", allEntries = true)
     public Long save(ArticleCategorySaveDTO dto) {
         // 同名校验
         Long exist = categoryMapper.selectCount(
@@ -149,6 +153,7 @@ public class ArticleCategoryServiceImpl implements ArticleCategoryService {
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = "knowledge:category-tree", allEntries = true)
     public void update(ArticleCategorySaveDTO dto) {
         ArticleCategory exist = getOrThrow(dto.getCategoryId());
         // 同名校验
@@ -169,6 +174,7 @@ public class ArticleCategoryServiceImpl implements ArticleCategoryService {
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = "knowledge:category-tree", allEntries = true)
     public void delete(Long id) {
         getOrThrow(id);
         // 有关联文章则禁止删除

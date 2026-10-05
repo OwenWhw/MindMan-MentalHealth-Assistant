@@ -24,7 +24,7 @@ import java.util.List;
  * <ol>
  *   <li>完整的会话生命周期管理（CRUD）</li>
  *   <li>消息持久化与历史查询</li>
- *   <li>AI 回复接口预留（当前返回模拟回复，后续接入 LLM 服务后替换）</li>
+ *   <li>AI 回复通过配置的云端或 Ollama 通道生成；通道不可用时返回服务错误</li>
  *   <li>情绪维度分析字段（每条 AI 消息可附带情绪标签）</li>
  * </ol>
  *
@@ -122,13 +122,14 @@ public interface ChatService {
      */
     void touchSession(Long userId, Long sessionId, String userContent);
 
-    /**
-     * 归档（结束）会话：将状态置为 2（已结束）。仅本人可操作。
-     *
-     * @param userId    当前登录用户ID
-     * @param sessionId 会话ID
-     */
+    /** 归档会话：将状态置为 2。 */
     void archiveSession(Long userId, Long sessionId);
+
+    /** 从归档恢复会话，允许继续对话。 */
+    void restoreSession(Long userId, Long sessionId);
+
+    /** 保存本人的会话总结；新消息会使旧总结失效。 */
+    void saveSessionSummary(Long userId, Long sessionId, String summary);
 
     // ======================== 管理端 ========================
 

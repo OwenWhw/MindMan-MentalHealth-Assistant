@@ -39,7 +39,8 @@ public class AnalysisServiceImpl implements AnalysisService {
         vo.setDiaryToday(analysisMapper.countDiaryToday());
         vo.setSessionTotal(analysisMapper.countSession());
         vo.setSessionToday(analysisMapper.countSessionToday());
-        vo.setEmotionHealth(round1(analysisMapper.avgEmotionScore() * 2));
+        Double averageEmotionScore = analysisMapper.avgEmotionScore();
+        vo.setEmotionHealth(averageEmotionScore == null ? null : round1(averageEmotionScore * 2));
         vo.setAvgDuration(round1(analysisMapper.avgSessionDuration()));
 
         // 趋势日期轴（今天往前 days 天）
@@ -68,7 +69,7 @@ public class AnalysisServiceImpl implements AnalysisService {
             AnalysisMapper.DayAvgRow er = emotionMap.get(d);
             AnalysisOverviewVO.EmotionTrendItem ei = new AnalysisOverviewVO.EmotionTrendItem();
             ei.setDate(label);
-            ei.setAvgScore(er == null ? 0d : round1(er.getAvgScore()));
+            ei.setAvgScore(er == null || er.getAvgScore() == null ? null : round1(er.getAvgScore()));
             ei.setCount(er == null ? 0 : er.getCount());
             emotionTrend.add(ei);
 

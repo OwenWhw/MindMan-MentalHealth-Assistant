@@ -27,6 +27,12 @@ export function getGarden() {
   return request.get('/emotion/garden')
 }
 
+// 用户主动请求回看当前花园记录；真实模式由后端 Agent 生成。
+export function analyzeGardenNote(data) {
+  if (API_MODE === 'mock') return Promise.resolve({ source: 'unavailable' })
+  return request.post('/emotion/garden/insight', data)
+}
+
 // 种下今日心情（用户端）
 export function plantFlower(data) {
   if (API_MODE === 'mock') return mockPlantFlower(data)

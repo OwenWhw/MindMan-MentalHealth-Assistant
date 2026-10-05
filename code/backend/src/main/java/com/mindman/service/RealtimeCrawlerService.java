@@ -1,5 +1,8 @@
 package com.mindman.service;
 
+import com.mindman.dto.CrawlRunResult;
+import com.mindman.dto.CrawlerStatusVO;
+
 import java.util.List;
 
 /**
@@ -20,6 +23,12 @@ public interface RealtimeCrawlerService {
      * @return 实际入库条数
      */
     int crawlOnce(int limit);
+
+    /** Run an observable feed sync, either triggered by an administrator or the daily scheduler. */
+    CrawlRunResult crawlDetailed(int limit, String triggerType);
+
+    /** Current feed configuration and recent synchronization history. */
+    CrawlerStatusVO status();
 
     /**
      * 当前配置的爬取 URL 种子列表（公开展示用，便于后台维护）。

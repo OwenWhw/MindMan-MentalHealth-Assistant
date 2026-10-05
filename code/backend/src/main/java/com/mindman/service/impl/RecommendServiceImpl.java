@@ -233,6 +233,7 @@ public class RecommendServiceImpl implements RecommendService {
             LocalDateTime fromDt = fromDate.atStartOfDay();
             List<ChatMessage> msgs = chatMessageMapper.selectList(
                     new QueryWrapper<ChatMessage>()
+                            .eq("user_id", userId)
                             .eq("role", "assistant")
                             .ge("created_at", fromDt)
                             .isNotNull("emotion"));

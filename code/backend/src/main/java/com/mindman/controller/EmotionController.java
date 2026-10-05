@@ -1,10 +1,13 @@
 package com.mindman.controller;
 
+import com.mindman.ai.MindManAgent;
 import com.mindman.common.R;
 import com.mindman.common.page.PageVO;
 import com.mindman.dto.EmotionDiaryVO;
 import com.mindman.dto.EmotionGardenVO;
 import com.mindman.dto.EmotionRecordSaveDTO;
+import com.mindman.dto.GardenInsightRequest;
+import com.mindman.dto.GardenInsightVO;
 import com.mindman.service.EmotionRecordService;
 import com.mindman.util.LoginUser;
 import io.swagger.v3.oas.annotations.Operation;
@@ -40,6 +43,7 @@ import java.util.List;
 public class EmotionController {
 
     private final EmotionRecordService emotionRecordService;
+    private final MindManAgent mindManAgent;
 
     // ======================== 用户端：情绪花园 ========================
 
@@ -47,6 +51,13 @@ public class EmotionController {
     @Operation(summary = "获取我的情绪花园")
     public R<List<EmotionGardenVO>> getGarden() {
         return R.ok(emotionRecordService.listGarden(LoginUser.get()));
+    }
+
+    @PostMapping("/garden/insight")
+    @Operation(summary = "按当前心情记录生成 AI 回看")
+    public R<GardenInsightVO> gardenInsight(@Valid @RequestBody GardenInsightRequest request) {
+        LoginUser.get();
+        return R.ok(mindManAgent.analyzeGardenDraft(request));
     }
 
     @PostMapping("/garden")

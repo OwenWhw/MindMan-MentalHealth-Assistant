@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 220" role="img" aria-label="wood abstract artwork">
+<defs><linearGradient id="bg" x2="1" y2="1"><stop stop-color="#e8dfca"/><stop offset="1" stop-color="#bdab86"/></linearGradient><linearGradient id="subject" x2="0" y2="1"><stop stop-color="#bdab86"/><stop offset="1" stop-color="#81765f"/></linearGradient></defs>
+<rect width="320" height="220" fill="url(#bg)"/><circle cx="252" cy="53" r="59" fill="#fff" opacity=".32"/><circle cx="59" cy="180" r="80" fill="#81765f" opacity=".09"/>
+<path d="M56 77h207v92H56Z" fill="url(#subject)" opacity=".78"/><path d="M67 98q48-22 91 0t94 0M67 127q48-22 91 0t94 0M67 153q48-22 91 0t94 0" fill="none" stroke="#81765f" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" opacity=".58"/>
+<path d="M0 207h320" stroke="#fff" stroke-opacity=".6" stroke-width="2"/></svg>

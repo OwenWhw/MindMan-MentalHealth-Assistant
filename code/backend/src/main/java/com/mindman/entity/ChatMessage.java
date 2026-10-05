@@ -19,6 +19,8 @@ public class ChatMessage {
     private String role;           // user / assistant
     private String content;
     private String emotion;        // AI 分析的情绪维度
+    @TableField("delivery_status")
+    private String deliveryStatus; // streaming / complete / interrupted / failed
 
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;

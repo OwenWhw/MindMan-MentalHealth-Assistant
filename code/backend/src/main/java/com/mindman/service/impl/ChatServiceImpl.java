@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.mindman.common.enums.MessageRoleEnum;
 import com.mindman.common.exception.NotFoundException;
 import com.mindman.common.page.PageVO;
+import com.mindman.ai.MindManAgent;
 import com.mindman.dto.AdminSessionVO;
 import com.mindman.dto.ChatMessageVO;
 import com.mindman.dto.ChatSendDTO;
@@ -18,7 +19,6 @@ import com.mindman.entity.User;
 import com.mindman.mapper.ChatMessageMapper;
 import com.mindman.mapper.ChatSessionMapper;
 import com.mindman.mapper.UserMapper;
-import com.mindman.service.AiChatService;
 import com.mindman.service.ChatService;
 import com.mindman.util.EmotionAnalyzer;
 import lombok.RequiredArgsConstructor;
@@ -40,7 +40,7 @@ import java.util.stream.Collectors;
  *   <li>用户消息即时入库，AI 回复在生成后入库（含情绪分析标签）</li>
  *   <li>会话标题：若创建时未指定，则默认为"新的咨询"；首条消息发送时自动截取生成</li>
  *   <li>会话列表附带最近消息预览和消息总数，方便前端展示</li>
- *   <li>AI 回复通过 {@link AiChatService} 实现，支持同步和流式两种模式</li>
+ *   <li>AI 回复和个人资料分析通过 {@link MindManAgent} 协调</li>
  *   <li>流式模式下，AI 消息在流结束后统一入库；同步模式下即时入库</li>
  * </ul>
  */
@@ -52,7 +52,7 @@ public class ChatServiceImpl implements ChatService {
     private final ChatSessionMapper sessionMapper;
     private final ChatMessageMapper messageMapper;
     private final UserMapper userMapper;
-    private final AiChatService aiChatService;
+    private final MindManAgent mindManAgent;
 
     // ======================== 会话管理 ========================
 
@@ -98,6 +98,7 @@ public class ChatServiceImpl implements ChatService {
                     new LambdaQueryWrapper<ChatMessage>()
                             .eq(ChatMessage::getSessionId, session.getId())
                             .orderByDesc(ChatMessage::getCreatedAt)
+                            .orderByDesc(ChatMessage::getId)
                             .last("LIMIT 1")
             );
             String preview = lastMsg != null
@@ -133,27 +134,32 @@ public class ChatServiceImpl implements ChatService {
     // ======================== 消息收发 ========================
 
     @Override
-    @Transactional
     public List<ChatMessageVO> sendMessage(Long userId, ChatSendDTO dto) {
         ChatSession session = getOwnedSession(userId, dto.getSessionId());
+        ensureActive(session);
 
         List<ChatMessageVO> result = new ArrayList<>(2);
 
         // ── 1. 保存用户消息 ──
-        ChatMessage userMsg = saveUserMessage(session.getId(), userId, dto.getContent());
+        String displayContent = dto.getDisplayContentOrContent().trim();
+        ChatMessage userMsg = saveUserMessage(session.getId(), userId, displayContent);
         result.add(toMessageVO(userMsg));
+        updateSessionAfterMessage(session, displayContent);
 
-        // ── 2. 调用 AI 服务生成回复（同步模式）──
-        String aiReply = aiChatService.chatSync(dto.getContent(), buildContext(session.getId()), dto.getModel());
-        String emotion = EmotionAnalyzer.analyze(dto.getContent());
-
-        // ── 3. 保存 AI 回复 ──
-        ChatMessage aiMsg = saveAiMessage(session.getId(), userId, aiReply, emotion);
+        // 即使模型调用失败，用户消息也已落库，并保留一条可恢复的失败状态记录。
+        ChatMessage aiMsg = createPendingAiMessage(session.getId(), userId);
+        try {
+            String aiReply = mindManAgent.respondSync(userId, dto,
+                    buildContext(session.getId(), userMsg.getId(), aiMsg.getId()));
+            if (aiReply == null || aiReply.isBlank()) {
+                throw new IllegalStateException("AI 没有生成有效回复，请重试");
+            }
+            finishAiMessage(aiMsg, aiReply, "complete", EmotionAnalyzer.analyze(displayContent));
+        } catch (RuntimeException e) {
+            finishAiMessage(aiMsg, "", "failed", null);
+            throw e;
+        }
         result.add(toMessageVO(aiMsg));
-
-        // ── 4. 更新会话元信息 ──
-        updateSessionAfterMessage(session, dto.getContent());
-
         return result;
     }
 
@@ -166,6 +172,7 @@ public class ChatServiceImpl implements ChatService {
                 new LambdaQueryWrapper<ChatMessage>()
                         .eq(ChatMessage::getSessionId, sessionId)
                         .orderByAsc(ChatMessage::getCreatedAt)
+                        .orderByAsc(ChatMessage::getId)
         );
 
         return paged.getRecords().stream()
@@ -182,6 +189,7 @@ public class ChatServiceImpl implements ChatService {
     @Transactional
     public void touchSession(Long userId, Long sessionId, String userContent) {
         ChatSession s = getOwnedSession(userId, sessionId);
+        ensureActive(s);
         updateSessionAfterMessage(s, userContent);
     }
 
@@ -189,9 +197,38 @@ public class ChatServiceImpl implements ChatService {
     @Transactional
     public void archiveSession(Long userId, Long sessionId) {
         ChatSession s = getOwnedSession(userId, sessionId);
+        if (Integer.valueOf(2).equals(s.getStatus())) return;
         s.setStatus(2);
+        s.setUpdatedAt(LocalDateTime.now());
         sessionMapper.updateById(s);
         log.info("用户 {} 归档会话 id={}", userId, sessionId);
+    }
+
+    @Override
+    @Transactional
+    public void restoreSession(Long userId, Long sessionId) {
+        ChatSession s = getOwnedSession(userId, sessionId);
+        if (!Integer.valueOf(2).equals(s.getStatus())) return;
+        sessionMapper.update(null, new UpdateWrapper<ChatSession>()
+                .eq("id", sessionId)
+                .eq("user_id", userId)
+                .set("status", 1)
+                .set("updated_at", LocalDateTime.now()));
+        log.info("用户 {} 恢复会话 id={}", userId, sessionId);
+    }
+
+    @Override
+    @Transactional
+    public void saveSessionSummary(Long userId, Long sessionId, String summary) {
+        getOwnedSession(userId, sessionId);
+        if (summary == null || summary.isBlank()) {
+            throw new IllegalArgumentException("会话总结不能为空");
+        }
+        sessionMapper.update(null, new UpdateWrapper<ChatSession>()
+                .eq("id", sessionId)
+                .eq("user_id", userId)
+                .set("summary", summary.trim())
+                .set("summary_updated_at", LocalDateTime.now()));
     }
 
     // ======================== 管理端 ========================
@@ -261,7 +298,7 @@ public class ChatServiceImpl implements ChatService {
             vo.setAvatar(u.getAvatar());
         }
         vo.setStatus(st);
-        vo.setStatusText(st == 2 ? "已结束" : "进行中");
+        vo.setStatusText(st == 2 ? "已归档" : "进行中");
         vo.setStartedAt(s.getCreatedAt());
         vo.setEndedAt(s.getUpdatedAt());
 
@@ -304,17 +341,24 @@ public class ChatServiceImpl implements ChatService {
     /**
      * 保存 AI 回复消息到数据库
      */
-    private ChatMessage saveAiMessage(Long sessionId, Long userId, String content, String emotion) {
+    private ChatMessage createPendingAiMessage(Long sessionId, Long userId) {
         ChatMessage msg = new ChatMessage();
         msg.setSessionId(sessionId);
         msg.setUserId(userId);
         msg.setRole(MessageRoleEnum.ASSISTANT.getCode());
-        msg.setContent(content);
-        msg.setEmotion(emotion);
+        msg.setContent("");
+        msg.setDeliveryStatus("streaming");
         msg.setCreatedAt(LocalDateTime.now());
         messageMapper.insert(msg);
-        log.debug("AI回复已保存: sessionId={}, msgId={}, emotion={}", sessionId, msg.getId(), emotion);
+        log.debug("AI 回复占位记录已保存: sessionId={}, msgId={}", sessionId, msg.getId());
         return msg;
+    }
+
+    private void finishAiMessage(ChatMessage msg, String content, String deliveryStatus, String emotion) {
+        msg.setContent(content == null ? "" : content);
+        msg.setDeliveryStatus(deliveryStatus);
+        msg.setEmotion(emotion);
+        messageMapper.updateById(msg);
     }
 
     /**
@@ -326,22 +370,36 @@ public class ChatServiceImpl implements ChatService {
      */
     private void updateSessionAfterMessage(ChatSession session, String userContent) {
         // 首条消息自动生成标题
-        if ("新的咨询".equals(session.getTitle()) || "新的心理咨询".equals(session.getTitle())) {
+        String title = session.getTitle();
+        boolean generateTitle = "新的咨询".equals(title) || "新的心理咨询".equals(title);
+        if (generateTitle) {
             String autoTitle = truncate(userContent.trim(), 20);
             session.setTitle(autoTitle);
         }
-        session.setUpdatedAt(LocalDateTime.now());
-        sessionMapper.updateById(session);
+        LocalDateTime now = LocalDateTime.now();
+        session.setUpdatedAt(now);
+        session.setSummary(null);
+        session.setSummaryUpdatedAt(null);
+        UpdateWrapper<ChatSession> update = new UpdateWrapper<ChatSession>()
+                .eq("id", session.getId())
+                .eq("user_id", session.getUserId())
+                .set("updated_at", now)
+                .set("summary", null)
+                .set("summary_updated_at", null);
+        if (generateTitle) update.set("title", session.getTitle());
+        sessionMapper.update(null, update);
     }
 
     /**
      * 构建会话上下文（最近 N 条消息作为对话历史，传给 AI）
      */
-    private String buildContext(Long sessionId) {
+    private String buildContext(Long sessionId, Long excludeMessageId, Long pendingAssistantId) {
         List<ChatMessage> recentMessages = messageMapper.selectList(
                 new LambdaQueryWrapper<ChatMessage>()
                         .eq(ChatMessage::getSessionId, sessionId)
+                        .ne(excludeMessageId != null, ChatMessage::getId, excludeMessageId)
                         .orderByDesc(ChatMessage::getCreatedAt)
+                        .orderByDesc(ChatMessage::getId)
                         .last("LIMIT 10")
         );
 
@@ -353,6 +411,9 @@ public class ChatServiceImpl implements ChatService {
         StringBuilder sb = new StringBuilder();
         for (int i = recentMessages.size() - 1; i >= 0; i--) {
             ChatMessage m = recentMessages.get(i);
+            if (pendingAssistantId != null && pendingAssistantId.equals(m.getId())) continue;
+            if (MessageRoleEnum.ASSISTANT.getCode().equals(m.getRole())
+                    && m.getDeliveryStatus() != null && !"complete".equals(m.getDeliveryStatus())) continue;
             String role = MessageRoleEnum.USER.getCode().equals(m.getRole()) ? "用户" : "AI";
             sb.append(role).append("：").append(m.getContent()).append("\n");
         }
@@ -373,6 +434,12 @@ public class ChatServiceImpl implements ChatService {
         return session;
     }
 
+    private void ensureActive(ChatSession session) {
+        if (Integer.valueOf(2).equals(session.getStatus())) {
+            throw new IllegalStateException("会话已归档，请先恢复后继续");
+        }
+    }
+
     /**
      * 情绪分析已统一使用 EmotionAnalyzer 工具类，不再需要此方法。
      */
@@ -385,7 +452,7 @@ public class ChatServiceImpl implements ChatService {
                 .id(session.getId())
                 .title(session.getTitle())
                 .status(st)
-                .statusText(st == 2 ? "已结束" : "进行中")
+                .statusText(st == 2 ? "已归档" : "进行中")
                 .createdAt(session.getCreatedAt())
                 .updatedAt(session.getUpdatedAt())
                 .lastMessagePreview(preview)
@@ -402,6 +469,7 @@ public class ChatServiceImpl implements ChatService {
                 .content(msg.getContent())
                 .emotion(msg.getEmotion())
                 .createdAt(msg.getCreatedAt())
+                .deliveryStatus(msg.getDeliveryStatus() == null ? "complete" : msg.getDeliveryStatus())
                 .build();
     }
 

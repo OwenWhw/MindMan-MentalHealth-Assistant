@@ -1,0 +1,14 @@
+# 构建镜像时排除以下内容，减小构建上下文、加快构建速度
+target/
+.git/
+.gitignore
+.idea/
+*.iml
+README.md
+Dockerfile
+.dockerignore
+# Never send developer-only configuration or credentials into a remote build context.
+src/main/resources/application-local.yml
+src/main/resources/application-local.yaml
+.env
+.env.*

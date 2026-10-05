@@ -58,6 +58,7 @@ public class EmotionRecordServiceImpl implements EmotionRecordService {
         r.setEmotionScore(dto.getEmotionScore());
         r.setSleepScore(dto.getSleepScore());
         r.setStressScore(dto.getStressScore());
+        r.setRatingSource(EmotionRecord.RATING_SOURCE_SELF_REPORTED);
         r.setTrigger(dto.getTrigger());
         r.setRecordDate(LocalDate.now());
         r.setCreatedAt(LocalDateTime.now());
@@ -75,6 +76,7 @@ public class EmotionRecordServiceImpl implements EmotionRecordService {
         r.setEmotionScore(dto.getEmotionScore());
         r.setSleepScore(dto.getSleepScore());
         r.setStressScore(dto.getStressScore());
+        r.setRatingSource(EmotionRecord.RATING_SOURCE_SELF_REPORTED);
         r.setTrigger(dto.getTrigger());
         emotionRecordMapper.updateById(r);
         log.info("用户 {} 编辑心情之花 id={}", userId, id);
@@ -156,6 +158,7 @@ public class EmotionRecordServiceImpl implements EmotionRecordService {
 
     private void applyScoreRange(LambdaQueryWrapper<EmotionRecord> wrapper, String scoreRange) {
         if (scoreRange == null || scoreRange.isBlank()) return;
+        wrapper.eq(EmotionRecord::getRatingSource, EmotionRecord.RATING_SOURCE_SELF_REPORTED);
         switch (scoreRange) {
             case "1-2":
                 wrapper.between(EmotionRecord::getEmotionScore, 1, 2);

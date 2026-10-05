@@ -12,6 +12,8 @@ import java.time.LocalDateTime;
 @TableName("emotion_record")
 public class EmotionRecord {
 
+    public static final String RATING_SOURCE_SELF_REPORTED = "self_reported";
+
     @TableId(type = IdType.AUTO)
     private Long id;
 
@@ -22,6 +24,7 @@ public class EmotionRecord {
     private String note;          // 备注 / 日记内容
     private Integer sleepScore;   // 睡眠质量评分 1-5（前端情绪花园/日志）
     private Integer stressScore;  // 压力水平评分 1-5
+    private String ratingSource;  // self_reported；旧记录为 null，表示来源未记录
     @TableField("`trigger`")       // trigger 是 MySQL 保留字，需用反引号转义
     private String trigger;       // 情绪触发因素
     private LocalDate recordDate;

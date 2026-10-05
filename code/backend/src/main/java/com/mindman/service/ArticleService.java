@@ -5,6 +5,8 @@ import com.mindman.dto.ArticleQueryDTO;
 import com.mindman.dto.ArticleSaveDTO;
 import com.mindman.dto.ArticleVO;
 
+import java.util.List;
+
 public interface ArticleService {
 
     /** 分页查询（返回带 categoryName 的 VO） */
@@ -12,6 +14,12 @@ public interface ArticleService {
 
     /** 文章详情（阅读量 +1，返回 VO） */
     ArticleVO detail(Long id);
+
+    /** 用户在咨询中选择的已发布文章（不增加阅读量；草稿或不存在时返回 null） */
+    ArticleVO publishedReference(Long id);
+
+    /** 按明确提到的主题，从已发布文章中找可核验的站内推荐。 */
+    List<ArticleVO> recommendPublished(List<String> keywords, int limit);
 
     /** 保存（新增/更新），有 articleId 走更新 */
     Long save(ArticleSaveDTO dto);

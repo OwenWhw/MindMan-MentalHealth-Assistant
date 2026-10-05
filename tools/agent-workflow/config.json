@@ -1,0 +1,27 @@
+{
+  "baseUrl": "http://localhost:8080",
+  "llm": {
+    "provider": "ollama",
+    "baseUrl": "http://localhost:11434/v1",
+    "model": "qwen2.5:7b",
+    "timeout": 180,
+    "temperature": 0.2,
+    "enabled": true
+  },
+  "target": {
+    "backendDir": "code/backend",
+    "controllerDir": "code/backend/src/main/java/com/mindman/controller",
+    "auth": {
+      "loginPath": "/api/auth/login",
+      "username": "admin",
+      "password": "123456"
+    }
+  },
+  "run": {
+    "maxCases": 12,
+    "httpTimeout": 30,
+    "aiTimeout": 300,
+    "outputDir": "docs/agent-reports",
+    "agents": ["spec", "executor", "analysis", "reporter"]
+  }
+}

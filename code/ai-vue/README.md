@@ -42,6 +42,7 @@ public/sounds/   # 白噪音与真实录音音频
 
 ## 说明
 
+- 用户首页为 `/#/home`，整站视觉统一采用暖白、鼠尾草绿与陶土色。升级前的前端源码存放于项目根目录的 `design-archive/2026-09-28-before-site-refresh`，不会进入网站构建。
 - 图标统一使用 `lucide-vue-next`，并在 `src/main.js` 中对 Element Plus 同名图标做覆盖注册
 - 白噪音：白噪/棕噪由 Web Audio API 实时合成，雨声、海浪、森林、壁炉为本地音频文件
 - 播放器状态存于 `stores/player.js`，`FloatPlayer` 全局常驻

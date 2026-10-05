@@ -12,7 +12,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -26,13 +25,35 @@ import java.util.Map;
  *       与本地（Ollama OpenAI 兼容端点）之间选择通道，二者均为 SSE 流式</li>
  *   <li>系统提示词从<b>提示词模板服务</b>（prompt_template 表，scene=chat_system）动态获取，
  *       无生效模板时回退到 {@code ai.*.system-prompt} 内置配置</li>
- *   <li>全部通道不可用时自动降级为<b>本地模拟回复</b>（打字机式伪流式）</li>
+ *   <li>通道不可用或调用失败时返回明确错误，不伪造 AI 回复</li>
  * </ul>
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class AiChatServiceImpl implements AiChatService {
+
+    /** Enforced on every chat even when an older/custom database template is active. */
+    private static final String CHAT_INTERACTION_GUIDANCE = """
+            \n\n【对话互动规则｜优先于上方旧模板】
+            先直接完成用户这轮明确提出的事。用户问操作、资料或建议时，先给可核对的结果，不用泛泛安慰替代答案。
+            先回应用户刚说的一个具体细节；不复述整段，不用“我听到了你的分享”“谢谢你愿意告诉我”“这一定不容易”“我一直在这里陪着你”等固定套话开头或收尾。
+            不为每轮都补一个问题。只有缺少的信息会改变回答时，才问一个简短、开放的问题；用户不必继续透露隐私。
+            用户没有明确要建议时，先倾听，不主动塞解决办法；只有确有具体建议可供选择时，才简短询问是否想听。明确要建议时，给 1–2 个小而具体、今天可尝试的动作，并说明怎么开始。
+            不默认加 emoji、感叹号、鼓励口号或反问句。通常用 2–5 句；复杂的实用问题可以按需展开。
+            中文回答必须清楚分段：先直接回应核心问题，再按逻辑补充依据或做法；每段只讲一个意思，通常 1–3 句，段落之间空一行。超过两个并列要点时使用简短列表。
+            需要小标题时，标题单独一行，使用规范 Markdown（例如“### 文章要点”），标题和正文之间空一行；禁止把标题、正文和多个观点连成一个长段，也不要在句子中间输出 ###、** 等格式符号。
+            表达要像自然中文：句子主谓清楚，避免英语语序直译、残缺短语和生硬套话；忠实原意的同时改写成通顺易懂的中文。原文含义不明时说明不确定处，不要猜着补全。
+            只把已提供的会话、用户明确选择的花园记录和站内资料当作依据。没有检索到的文章标题、作者、来源、链接、数字或用户经历，一律不编造。
+            花园分析先列记录事实，再谨慎表达可能的联系；样本不足要明说，不作诊断，也不把应用评分描述为临床评估。
+            翻译文章时忠实呈现已提供的文字。遇到双关、文字游戏或专名，保留原文短语并简要解释；不要把修辞误写成心理或医学术语。
+            """;
+
+    private static final String ARTICLE_TRANSLATION_GUIDANCE = """
+            \n\n【文章翻译专用规则】
+            只翻译用户选中的文章在上下文中列出的可用正文；禁止依标题扩写或把摘要当全文。使用自然准确的简体中文，不照搬英语语序，不写残缺句；严格区分原文、摘要和你的解释。保留有意义的双关原词并简短解释，不能将它误认成临床术语。涉及人物心理时只转述文章明确内容，不自行推断；涉及近期事件时表述为“文章称”，不声称独立核实。
+            回复结构：每个标题和正文各占独立段落；依次为“译文”（按原文顺序，忠实翻译）、“文章要点”（最多 3 点）、“谨慎解读”（最多 2 句，区分文章所写与谨慎理解）。译文保留原文段落；要点使用简短列表。禁止将标题和正文写在同一行，不加通用安慰、无根据的心理分析或结尾反问。若可用材料是摘要/片段，简短标明翻译范围。
+            """;
 
     private final AiConfig config;
     private final ChatClientRouter chatClientRouter;
@@ -43,11 +64,6 @@ public class AiChatServiceImpl implements AiChatService {
 
     @Override
     public String chatSync(String userMessage, String context, String model) {
-        if (chatClientRouter.current() == null) {
-            log.warn("AI 通道不可用（云端未配 Key 且 Ollama 未启用），使用模拟回复");
-            return generateMockReply(userMessage);
-        }
-
         try {
             List<ChatMessage> messages = buildMessages(userMessage, context);
             ChatOptions options = ChatOptions.builder()
@@ -58,7 +74,7 @@ public class AiChatServiceImpl implements AiChatService {
             return chatClientRouter.call(messages, options);
         } catch (Exception e) {
             log.error("AI 同步调用失败: {}", e.getMessage(), e);
-            return generateFallbackReply(userMessage);
+            throw new IllegalStateException("AI 服务暂时不可用，请稍后重试", e);
         }
     }
 
@@ -66,11 +82,6 @@ public class AiChatServiceImpl implements AiChatService {
 
     @Override
     public Flux<String> chatStream(String userMessage, String context, String model) {
-        if (chatClientRouter.current() == null) {
-            log.info("AI 通道不可用，使用模拟流式回复");
-            return mockStreamReply(userMessage);
-        }
-
         try {
             List<ChatMessage> messages = buildMessages(userMessage, context);
             ChatOptions options = ChatOptions.builder()
@@ -86,13 +97,33 @@ public class AiChatServiceImpl implements AiChatService {
                         }
                     })
                     .doOnComplete(() -> log.info("[AI-stream] 完成"))
-                    .onErrorResume(e -> {
-                        log.warn("AI 流式异常，降级为模拟回复: {}", e.getMessage());
-                        return mockStreamReply(userMessage);
-                    });
+                    .doOnError(e -> log.error("AI 流式调用失败: {}", e.getMessage()));
         } catch (Exception e) {
             log.error("AI 流式调用初始化失败: {}", e.getMessage());
-            return mockStreamReply(userMessage);
+            return Flux.error(new IllegalStateException("AI 服务暂时不可用，请稍后重试", e));
+        }
+    }
+
+    @Override
+    public String summarizeConversation(String transcript) {
+        if (isBlank(transcript)) {
+            throw new IllegalArgumentException("没有可总结的对话内容");
+        }
+        List<ChatMessage> messages = List.of(
+                ChatMessage.system("""
+                        你是 MindMan 的温和心理健康倾听助手。请根据用户明确分享的对话，写一份简洁、易读的回顾。
+                        分为「聊到的事情」「出现的感受」「可以继续留意」三部分；区分用户明确说过的事实与谨慎推测，不做诊断，不夸大结论，不提出过多建议。若内容不足，说明信息有限。使用简体中文，语气自然克制。
+                        """),
+                ChatMessage.user("请总结以下本次对话记录：\n\n" + transcript)
+        );
+        try {
+            return chatClientRouter.call(messages, ChatOptions.builder()
+                    .maxTokens(900)
+                    .temperature(0.35)
+                    .build());
+        } catch (Exception e) {
+            log.error("AI 对话总结失败: {}", e.getMessage(), e);
+            throw new IllegalStateException("AI 总结暂时不可用，请稍后重试", e);
         }
     }
 
@@ -107,12 +138,16 @@ public class AiChatServiceImpl implements AiChatService {
         // 系统提示词：优先取 prompt_template 表 chat_system 场景的生效模板，缺失回退内置配置
         String systemPrompt = promptTemplateService.render(
                 PromptTemplateService.SCENE_CHAT_SYSTEM, Map.of(), config::getSystemPrompt);
-        messages.add(ChatMessage.system(systemPrompt));
+        boolean articleTranslationTask = context != null && context.contains("【文章翻译任务标记】");
+        messages.add(ChatMessage.system(systemPrompt + CHAT_INTERACTION_GUIDANCE
+                + (articleTranslationTask ? ARTICLE_TRANSLATION_GUIDANCE : "")));
 
-        // RAG：检索知识库相关片段作为附加上下文（未启用/未索引/失败时静默跳过）
-        String ragContext = ragService.buildContext(userMessage);
-        if (ragContext != null && !ragContext.isBlank()) {
-            messages.add(ChatMessage.assistant(ragContext));
+        // Strict translation must use only the selected article text; unrelated RAG excerpts can contaminate it.
+        if (!articleTranslationTask) {
+            String ragContext = ragService.buildContext(userMessage);
+            if (ragContext != null && !ragContext.isBlank()) {
+                messages.add(ChatMessage.assistant(ragContext));
+            }
         }
 
         // 会话上下文摘要
@@ -126,64 +161,5 @@ public class AiChatServiceImpl implements AiChatService {
 
     private boolean isBlank(String s) {
         return s == null || s.isBlank();
-    }
-
-    // ======================== 降级 / 模拟回复 ========================
-
-    /**
-     * 本地模拟回复（当 AI 通道不可用或调用失败时降级使用）
-     */
-    private String generateMockReply(String userMessage) {
-        String lower = userMessage.toLowerCase();
-
-        if (lower.contains("焦虑") || lower.contains("紧张") || lower.contains("担心")) {
-            return "我听到了你的不安，这种感觉确实让人很难受 😔\n\n" +
-                   "焦虑其实是身体在提醒我们关注某些重要的事情。你愿意跟我说说，最近是什么让你感到这么紧张吗？我会一直在这里听你说。";
-        }
-        if (lower.contains("难过") || lower.contains("伤心") || lower.contains("哭")) {
-            return "谢谢你愿意把脆弱的一面分享给我 🤗\n\n" +
-                   "难过的时候，允许自己好好哭一场其实是很重要的事。你不需要时刻都坚强。能告诉我，是什么触发了这些情绪吗？";
-        }
-        if (lower.contains("失眠") || lower.contains("睡不着") || lower.contains("睡眠")) {
-            return "失眠真的让人很疲惫，我完全理解这种感受 🌙\n\n" +
-                   "睡不着的时候越着急反而越清醒。你最近是不是有什么事情一直在心里放不下？我们可以一起聊聊。";
-        }
-        if (lower.contains("累") || lower.contains("疲惫") || lower.contains("压力")) {
-            return "听起来你最近承担了很多，辛苦了 💪\n\n" +
-                   "有时候\"停下来\"比\"继续前进\"更需要勇气。你上一次真正放松是什么时候？";
-        }
-        if (lower.contains("孤独") || lower.contains("孤单") || lower.contains("没人")) {
-            return "孤独感是很沉重的，但请记住——你并不真的孤单 🫂\n\n" +
-                   "你愿意跟我多说说那种感觉吗？有时候把孤独说出来，它就没那么可怕了。";
-        }
-
-        return "我听到了你的分享，感谢你愿意告诉我这些 ✨\n\n" +
-               "能再多说说你现在的感受吗？我们可以一起慢慢梳理。你提到的事情，对你来说一定不容易。我在这里陪着你。";
-    }
-
-    /**
-     * 降级回复（AI 调用异常时返回的友好提示）
-     */
-    private String generateFallbackReply(String userMessage) {
-        return "抱歉，我刚才走神了 🙈\n\n" +
-               "你能再跟我说一遍吗？我正在认真听呢。";
-    }
-
-    /**
-     * 模拟流式回复（按字符逐段发出，模拟打字机效果）
-     */
-    private Flux<String> mockStreamReply(String userMessage) {
-        String fullReply = generateMockReply(userMessage);
-        // 每 1-3 个字符作为一个 chunk 模拟流式效果
-        List<String> chunks = new ArrayList<>();
-        int i = 0;
-        while (i < fullReply.length()) {
-            int len = Math.min(1 + (int) (Math.random() * 2), fullReply.length() - i);
-            chunks.add(fullReply.substring(i, i + len));
-            i += len;
-        }
-
-        return Flux.fromIterable(chunks)
-                .delayElements(Duration.ofMillis(30 + (long) (Math.random() * 40)));
     }
 }

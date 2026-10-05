@@ -22,4 +22,5 @@ public class ChatMessageVO {
     private String content;
     private String emotion;        // AI 分析的情绪标签（仅 assistant 消息有值）
     private LocalDateTime createdAt;
+    private String deliveryStatus; // complete / interrupted / failed
 }

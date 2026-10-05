@@ -13,8 +13,11 @@ import com.mindman.entity.ArticleCategory;
 import com.mindman.mapper.ArticleCategoryMapper;
 import com.mindman.mapper.ArticleMapper;
 import com.mindman.service.ArticleService;
+import com.mindman.util.LoginUser;
+import com.mindman.common.enums.RoleEnum;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -45,7 +48,8 @@ public class ArticleServiceImpl implements ArticleService {
         wrapper
                 .eq(q.getCategoryId() != null, Article::getCategoryId, q.getCategoryId())
                 .like(StringUtils.hasText(keyword), Article::getTitle, keyword)
-                .eq(q.getStatus() != null, Article::getStatus, q.getStatus())
+                .eq(isAdmin() && q.getStatus() != null, Article::getStatus, q.getStatus())
+                .eq(!isAdmin(), Article::getStatus, ArticleStatusEnum.PUBLISHED.getCode())
                 .orderByDesc(Article::getPublishTime)
                 .orderByDesc(Article::getId);
 
@@ -59,7 +63,7 @@ public class ArticleServiceImpl implements ArticleService {
     @Transactional
     public ArticleVO detail(Long id) {
         Article article = articleMapper.selectById(id);
-        if (article == null) {
+        if (article == null || (!isAdmin() && !Objects.equals(article.getStatus(), ArticleStatusEnum.PUBLISHED.getCode()))) {
             throw new NotFoundException("文章不存在");
         }
         // 阅读量原子 +1
@@ -73,7 +77,56 @@ public class ArticleServiceImpl implements ArticleService {
     }
 
     @Override
+    public ArticleVO publishedReference(Long id) {
+        if (id == null) return null;
+        Article article = articleMapper.selectById(id);
+        if (article == null || !Objects.equals(article.getStatus(), ArticleStatusEnum.PUBLISHED.getCode())) {
+            return null;
+        }
+        return toVO(Collections.singletonList(article)).get(0);
+    }
+
+    @Override
+    public List<ArticleVO> recommendPublished(List<String> keywords, int limit) {
+        int safeLimit = Math.min(Math.max(limit, 1), 5);
+        List<String> terms = keywords == null ? List.of() : keywords.stream()
+                .filter(StringUtils::hasText)
+                .map(String::trim)
+                .distinct()
+                .limit(5)
+                .toList();
+
+        LambdaQueryWrapper<Article> wrapper = new LambdaQueryWrapper<Article>()
+                .eq(Article::getStatus, ArticleStatusEnum.PUBLISHED.getCode());
+        if (!terms.isEmpty()) {
+            wrapper.and(matches -> {
+                boolean first = true;
+                for (String term : terms) {
+                    if (first) {
+                        matches.like(Article::getTitle, term)
+                                .or().like(Article::getSummary, term)
+                                .or().like(Article::getTags, term)
+                                .or().like(Article::getEmotionTags, term);
+                        first = false;
+                    } else {
+                        matches.or().like(Article::getTitle, term)
+                                .or().like(Article::getSummary, term)
+                                .or().like(Article::getTags, term)
+                                .or().like(Article::getEmotionTags, term);
+                    }
+                }
+            });
+        }
+        wrapper.orderByDesc(Article::getReads)
+                .orderByDesc(Article::getPublishTime)
+                .last("LIMIT " + safeLimit);
+
+        return toVO(articleMapper.selectList(wrapper));
+    }
+
+    @Override
     @Transactional
+    @CacheEvict(cacheNames = "knowledge:category-tree", allEntries = true)
     public Long save(ArticleSaveDTO dto) {
         // 校验分类存在
         ArticleCategory category = categoryMapper.selectById(dto.getCategoryId());
@@ -108,6 +161,7 @@ public class ArticleServiceImpl implements ArticleService {
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = "knowledge:category-tree", allEntries = true)
     public void updateStatus(Long articleId, Integer status) {
         Article a = articleMapper.selectById(articleId);
         if (a == null) throw new NotFoundException("文章不存在");
@@ -123,6 +177,7 @@ public class ArticleServiceImpl implements ArticleService {
 
     @Override
     @Transactional
+    @CacheEvict(cacheNames = "knowledge:category-tree", allEntries = true)
     public void delete(Long id) {
         Article a = articleMapper.selectById(id);
         if (a == null) throw new NotFoundException("文章不存在");
@@ -140,6 +195,10 @@ public class ArticleServiceImpl implements ArticleService {
         a.setTags(dto.getTags());
         a.setAuthor(StringUtils.hasText(dto.getAuthor()) ? dto.getAuthor() : "MindMan");
         if (dto.getStatus() != null) a.setStatus(dto.getStatus());
+    }
+
+    private boolean isAdmin() {
+        return RoleEnum.ADMIN.getCode().equals(LoginUser.role());
     }
 
     /** 将实体列表转为带分类名称的 VO */

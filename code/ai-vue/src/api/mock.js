@@ -624,8 +624,18 @@ export async function mockArchiveSession(id) {
   const session = sessionDb.find((item) => item.sessionId === Number(id))
   if (!session) throw new Error('会话不存在')
   session.status = 2
-  session.statusText = '已结束'
+  session.statusText = '已归档'
   session.endedAt = now()
+  return null
+}
+
+export async function mockRestoreSession(id) {
+  await delay(120)
+  const session = sessionDb.find((item) => item.sessionId === Number(id))
+  if (!session) throw new Error('会话不存在')
+  session.status = 1
+  session.statusText = '进行中'
+  session.endedAt = null
   return null
 }
 
@@ -792,19 +802,7 @@ export async function mockAnalysisOverview() {
   }
 }
 
-// ---------- AI 情绪分析（对话后自动分析） ----------
-// 基于消息关键词的轻量模拟分析，返回压力值 / 焦虑指数 / 睡眠风险（0-100）
-const EMOTION_KEYWORDS = {
-  stress: ['累', '压力', '加班', '工作', '忙', '赶', '紧张', '疲惫', '烦', '崩溃', '扛不住', '项目', '任务', '业绩', '难', '加班', '繁琐', '负担'],
-  anxiety: ['焦虑', '担心', '害怕', '慌', '不安', '未来', '面试', '选择', '纠结', '胡思乱想', '心跳', '喘不过气', '怕', '迷茫', '不确定', '慌张'],
-  sleep: ['睡不着', '失眠', '睡觉', '凌晨', '噩梦', '半夜', '醒来', '熬夜', '睡眠', '困', '睡不好', '惊醒', '多梦', '辗转反侧'],
-  low: ['难过', '伤心', '哭', '失落', '沮丧', '低落', '孤独', '无助', '委屈', '失望', '吵架', '矛盾', '分手', '失去', '想哭', '提不起劲'],
-  happy: ['开心', '高兴', '顺利', '分享', '好消息', '太棒', '放松', '舒服', '轻松', '愉快', '感谢', '温暖', '喜欢', '幸福', '期待']
-}
-
-const clampValue = (n, min = 5, max = 97) => Math.min(max, Math.max(min, n))
-
-const emotionLevel = (v) => (v >= 60 ? '偏高' : v >= 30 ? '中等' : '平稳')
+// ---------- AI 情绪线索演示回退 ----------
 
 export async function mockAvailableModels() {
   return {
@@ -823,115 +821,63 @@ export async function mockAvailableModels() {
 export async function mockAnalyzeEmotion(content = '') {
   await delay(700)
   const text = String(content || '')
-  const hit = (words) => words.reduce((n, w) => n + (text.includes(w) ? 1 : 0), 0)
-  const sHit = hit(EMOTION_KEYWORDS.stress)
-  const aHit = hit(EMOTION_KEYWORDS.anxiety)
-  const slHit = hit(EMOTION_KEYWORDS.sleep)
-  const lHit = hit(EMOTION_KEYWORDS.low)
-  const hHit = hit(EMOTION_KEYWORDS.happy)
-
-  // 基准值，命中负面关键词逐步抬升，正面情绪词会缓和
-  let stress = 58
-  let anxiety = 38
-  let sleepRisk = 24
-
-  if (!sHit && !aHit && !slHit && !lHit) {
-    stress = 22 + Math.round(Math.random() * 12)
-    anxiety = 14 + Math.round(Math.random() * 12)
-    sleepRisk = 8 + Math.round(Math.random() * 10)
-    if (hHit > 0) {
-      stress = Math.max(5, stress - hHit * 6)
-      anxiety = Math.max(5, anxiety - hHit * 6)
-      sleepRisk = Math.max(5, sleepRisk - hHit * 4)
+  const firstMention = (words) => {
+    for (const word of words) {
+      let from = 0
+      while (from < text.length) {
+        const index = text.indexOf(word, from)
+        if (index < 0) break
+      let prefix = text.slice(Math.max(0, index - 16), index).replace(/[，,。;；：:、\s]+$/u, '')
+      const modifiers = ['有那么', '感觉到', '觉得', '感觉', '感到', '认为', '怎么', '明显', '真正', '特别', '过于', '多少', '什么', '那么', '很', '太']
+      let stripped = true
+      while (stripped) {
+        stripped = false
+        for (const modifier of modifiers) {
+          if (prefix.endsWith(modifier)) {
+            prefix = prefix.slice(0, -modifier.length)
+            stripped = true
+            break
+          }
+        }
+      }
+        const negated = ['有没有', '会不会', '是不是', '是否', '并非', '并没有', '没有', '未曾', '不再', '不怎么', '不太', '不是', '并不', '没', '不', '无', '未'].some((negation) => prefix.endsWith(negation))
+        if (!negated) return word
+        from = index + word.length
+      }
     }
-  } else {
-    stress += sHit * 8 + (sHit > 1 ? 5 : 0) + lHit * 5
-    anxiety += aHit * 10 + (aHit > 1 ? 6 : 0) + lHit * 4
-    sleepRisk += slHit * 11 + (slHit > 1 ? 6 : 0)
-    // 正面情绪词缓和负面指标
-    const ease = hHit * 6
-    stress -= ease
-    anxiety -= ease
-    sleepRisk -= ease * 0.6
-    // 轻微随机扰动，让每次分析略有差异
-    stress += Math.round(Math.random() * 7 - 3)
-    anxiety += Math.round(Math.random() * 7 - 3)
-    sleepRisk += Math.round(Math.random() * 7 - 3)
+    return ''
   }
-
-  stress = clampValue(stress)
-  anxiety = clampValue(anxiety)
-  sleepRisk = clampValue(sleepRisk)
-
-  // 主导情绪识别
-  let emotion = '平稳'
-  let emotionIcon = '😌'
-  if (hHit > 0 && stress < 45 && anxiety < 45 && sleepRisk < 45) {
-    emotion = '开心'
-    emotionIcon = '😄'
-  } else {
-    const max = Math.max(stress, anxiety, sleepRisk)
-    if (lHit > 0 && max <= 55) {
-      emotion = '低落'
-      emotionIcon = '🌥️'
-    } else if (max === sleepRisk && sleepRisk >= 45) {
-      emotion = '睡眠困扰'
-      emotionIcon = '😴'
-    } else if (max === anxiety) {
-      emotion = '焦虑'
-      emotionIcon = '😰'
-    } else if (max === stress) {
-      emotion = '压力'
-      emotionIcon = '😮‍💨'
-    }
-  }
-
-  // 情绪健康度：越高越健康
-  const emotionScore = clampValue(100 - Math.round((stress + anxiety + sleepRisk) / 3), 5, 100)
-
-  // 与后台「情绪日记」一致的 1-5 星制数据：emotionScore/sleepScore/stressScore
-  // 情绪评分：综合情绪健康度转星（5=最好，1=最差）
-  const emotionStar = clampValue(Math.round((emotionScore / 100) * 4) + 1, 1, 5)
-  // 睡眠评分：sleepRisk 越低越好（5=睡得最好，1=失眠严重）
-  const sleepStar = clampValue(Math.round(((100 - sleepRisk) / 100) * 4) + 1, 1, 5)
-  // 压力评分：stress 越高代表压力越大（5=压力爆表，1=毫无压力）
-  const stressStar = clampValue(Math.round((stress / 100) * 4) + 1, 1, 5)
-
-  // 建议列表：按最突出的维度给出 2 条
-  const tips = {
-    stress: '试试 4-7-8 深呼吸，先给大脑 5 分钟暂停',
-    anxiety: '把担心写下来，拆成一件件小事，逐件完成',
-    sleep: '睡前 1 小时放下手机，泡杯温牛奶助眠',
-    low: '允许自己休息一下，找信任的人说说话',
-    happy: '好心情值得记录，把今天的快乐存进花园里'
-  }
-  const suggestions = []
-  const rank = [
-    { k: 'stress', v: stress },
-    { k: 'anxiety', v: anxiety },
-    { k: 'sleep', v: sleepRisk },
-    { k: 'low', v: lHit > 0 ? 50 : 0 }
-  ].sort((a, b) => b.v - a.v)
-  rank.slice(0, 2).forEach((item) => {
-    if (item.v >= 30 && tips[item.k]) suggestions.push(tips[item.k])
+  const moodGroups = [
+    ['焦虑', ['焦虑', '紧张', '担心', '害怕', '不安']],
+    ['低落', ['不开心', '难过', '伤心', '低落', '孤独', '无助', '失望']],
+    ['愤怒', ['生气', '烦躁', '愤怒', '火大']],
+    ['疲惫', ['疲惫', '很累', '好累', '累', '困']],
+    ['愉悦', ['开心', '高兴', '快乐', '愉快', '放松', '安心']],
+    ['平静', ['平静', '还不错', '还好', '踏实']]
+  ]
+  const moods = moodGroups.filter(([, words]) => firstMention(words)).map(([mood]) => mood)
+  const emotion = moods.length > 1 ? '混合感受' : moods[0] || '暂不判断'
+  const evidence = moods.length ? firstMention(moodGroups.find(([mood]) => mood === moods[0])[1]) : ''
+  const cueGroups = [
+    ['压力', ['工作压力', '学习压力', '压力很大', '压力大', '压力', '忙不过来', '加班', '扛不住']],
+    ['焦虑', ['焦虑', '紧张', '担心', '害怕', '不安']],
+    ['睡眠', ['睡不着', '睡不好', '没睡好', '失眠', '熬夜', '噩梦', '惊醒']]
+  ]
+  const cues = cueGroups.map(([label, words]) => {
+    const quote = firstMention(words)
+    return { label, status: quote ? '原话中提到' : '未识别到明确线索', evidence: quote }
   })
-  if (hHit > 0 && !suggestions.length) suggestions.push(tips.happy)
-  if (!suggestions.length) suggestions.push('目前情绪很平稳，继续保持好心情')
+  const interpretation = evidence
+    ? `你提到“${evidence}”，我先把它当作「${emotion}」的本轮线索；如果不贴合，可以直接纠正我。`
+    : '这句话里没有足够明确的情绪表达，我先不猜。'
 
   return {
-    stress,
-    anxiety,
-    sleepRisk,
-    stressLevel: emotionLevel(stress),
-    anxietyLevel: emotionLevel(anxiety),
-    sleepLevel: emotionLevel(sleepRisk),
     emotion,
-    emotionIcon,
-    emotionScore,
-    emotionStar,
-    sleepStar,
-    stressStar,
-    suggestions,
+    analysisSource: 'rules',
+    evidence,
+    interpretation,
+    cues,
+    suggestions: [],
     analyzedAt: now()
   }
 }
@@ -1050,15 +996,17 @@ export async function mockGetGarden() {
 
 export async function mockPlantFlower(data = {}) {
   await delay(200)
+  assertSelfRatings(data)
   const list = getGardenRecords()
   const flowerId = Date.now()
   const flower = {
     flowerId,
     emotion: String(data.emotion || '平静'),
     content: String(data.content || ''),
-    emotionScore: Number(data.emotionScore) || 3,
-    sleepScore: Number(data.sleepScore) || 3,
-    stressScore: Number(data.stressScore) || 3,
+    emotionScore: Number(data.emotionScore),
+    sleepScore: Number(data.sleepScore),
+    stressScore: Number(data.stressScore),
+    ratingSource: 'self_reported',
     date: now().slice(0, 10),
     createdAt: now()
   }
@@ -1069,10 +1017,11 @@ export async function mockPlantFlower(data = {}) {
 
 export async function mockUpdateFlower(flowerId, data = {}) {
   await delay(180)
+  assertSelfRatings(data)
   const list = getGardenRecords()
   const idx = list.findIndex((f) => f.flowerId === flowerId)
   if (idx < 0) throw new Error('花朵不存在')
-  list[idx] = { ...list[idx], ...data }
+  list[idx] = { ...list[idx], ...data, ratingSource: 'self_reported' }
   saveGardenRecords(list)
   return { flowerId }
 }
@@ -1082,4 +1031,12 @@ export async function mockDeleteFlower(flowerId) {
   const list = getGardenRecords().filter((f) => f.flowerId !== flowerId)
   saveGardenRecords(list)
   return { flowerId }
+}
+
+function assertSelfRatings(data) {
+  const valid = ['emotionScore', 'sleepScore', 'stressScore'].every((key) => {
+    const score = Number(data[key])
+    return Number.isInteger(score) && score >= 1 && score <= 5
+  })
+  if (!valid) throw new Error('请按自己的感受完成三项评分（1–5）')
 }

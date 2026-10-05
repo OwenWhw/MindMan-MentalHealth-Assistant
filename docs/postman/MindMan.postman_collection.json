@@ -1,0 +1,444 @@
+{
+  "info": {
+    "name": "MindMan 接口测试",
+    "description": "心理健康助手 MindMan 接口测试集合（配合 docs/测试手册-手把手.md 使用）\n\n使用顺序：\n1. 先跑「01-认证 / 登录」——它会自动把 token 写入集合变量，后续请求自动携带\n2. 再按 02~06 分组依次执行\n3. 每个请求的 Tests 标签页里都有断言脚本，可在 Test Results 查看通过情况\n\n环境变量：baseUrl / token / sessionId 均由脚本自动维护",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "token", "value": "" },
+    { "key": "sessionId", "value": "" },
+    { "key": "articleId", "value": "1" }
+  ],
+  "auth": { "type": "noauth" },
+  "item": [
+    {
+      "name": "01-认证",
+      "item": [
+        {
+          "name": "登录（自动保存 token）",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 状态码为 200', function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test('业务码为 200', function () { pm.expect(json.code).to.eql(200); });",
+                  "pm.test('返回了 token', function () { pm.expect(json.data.token).to.be.a('string').and.not.empty; });",
+                  "pm.collectionVariables.set('token', json.data.token);",
+                  "console.log('已保存 token，有效期至 ' + json.data.expiresAt);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"username\": \"admin\",\n  \"password\": \"123456\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "auth", "login"] }
+          }
+        },
+        {
+          "name": "获取当前用户（需 token）",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', function () { pm.response.to.have.status(200); });",
+                  "const json = pm.response.json();",
+                  "pm.test('业务码 200', function () { pm.expect(json.code).to.eql(200); });",
+                  "pm.test('用户名是 admin', function () { pm.expect(json.data.username).to.eql('admin'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{baseUrl}}/api/auth/me", "host": ["{{baseUrl}}"], "path": ["api", "auth", "me"] }
+          }
+        },
+        {
+          "name": "异常-错误密码（预期被拒）",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('被拒绝（业务码非 200）', function () { pm.expect(pm.response.json().code).to.not.eql(200); });",
+                  "pm.test('提示密码错误', function () { pm.expect(pm.response.json().message).to.include('密码'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"username\": \"admin\",\n  \"password\": \"wrongpass123\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "auth", "login"] }
+          }
+        },
+        {
+          "name": "异常-不带 token 访问（预期 HTTP 401）",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 状态码为 401', function () { pm.response.to.have.status(401); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/auth/me", "host": ["{{baseUrl}}"], "path": ["api", "auth", "me"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "02-情绪管理",
+      "item": [
+        {
+          "name": "情绪花园列表",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('HTTP 200', function () { pm.response.to.have.status(200); });",
+            "const json = pm.response.json();",
+            "pm.test('业务码 200', function () { pm.expect(json.code).to.eql(200); });",
+            "pm.test('返回数组', function () { pm.expect(json.data).to.be.an('array'); });",
+            "console.log('花园花朵数：' + json.data.length);"
+          ] } }],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{baseUrl}}/api/emotion/garden", "host": ["{{baseUrl}}"], "path": ["api", "emotion", "garden"] }
+          }
+        },
+        {
+          "name": "种下今日心情（写入）",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('HTTP 200', function () { pm.response.to.have.status(200); });",
+            "pm.test('业务码 200', function () { pm.expect(pm.response.json().code).to.eql(200); });"
+          ] } }],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"emotion\": \"平静\",\n  \"content\": \"Postman 手工测试写入\",\n  \"emotionScore\": 3,\n  \"sleepScore\": 4,\n  \"stressScore\": 2,\n  \"trigger\": \"接口测试\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/emotion/garden", "host": ["{{baseUrl}}"], "path": ["api", "emotion", "garden"] }
+          }
+        },
+        {
+          "name": "情绪日记分页",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('HTTP 200', function () { pm.response.to.have.status(200); });",
+            "const json = pm.response.json();",
+            "pm.test('分页结构完整', function () { pm.expect(json.data).to.have.property('total'); pm.expect(json.data).to.have.property('list'); });"
+          ] } }],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/emotion/diary/page?page=1&pageSize=5",
+              "host": ["{{baseUrl}}"], "path": ["api", "emotion", "diary", "page"],
+              "query": [{ "key": "page", "value": "1" }, { "key": "pageSize", "value": "5" }]
+            }
+          }
+        },
+        {
+          "name": "本周情绪洞察",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('HTTP 200', function () { pm.response.to.have.status(200); });",
+            "pm.test('业务码 200', function () { pm.expect(pm.response.json().code).to.eql(200); });"
+          ] } }],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{baseUrl}}/api/emotion/insight/this-week", "host": ["{{baseUrl}}"], "path": ["api", "emotion", "insight", "this-week"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "03-知识内容",
+      "item": [
+        {
+          "name": "分类树",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('HTTP 200', function () { pm.response.to.have.status(200); });",
+            "pm.test('返回数组', function () { pm.expect(pm.response.json().data).to.be.an('array'); });"
+          ] } }],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{baseUrl}}/api/knowledge/category/tree", "host": ["{{baseUrl}}"], "path": ["api", "knowledge", "category", "tree"] }
+          }
+        },
+        {
+          "name": "文章分页",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('HTTP 200', function () { pm.response.to.have.status(200); });",
+            "const json = pm.response.json();",
+            "pm.test('总数大于 0', function () { pm.expect(json.data.total).to.be.above(0); });"
+          ] } }],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/knowledge/article/page?page=1&pageSize=5",
+              "host": ["{{baseUrl}}"], "path": ["api", "knowledge", "article", "page"],
+              "query": [{ "key": "page", "value": "1" }, { "key": "pageSize", "value": "5" }]
+            }
+          }
+        },
+        {
+          "name": "文章详情（观察阅读量）",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('HTTP 200', function () { pm.response.to.have.status(200); });",
+            "const json = pm.response.json();",
+            "pm.test('有标题', function () { pm.expect(json.data.title).to.be.a('string').and.not.empty; });",
+            "console.log('当前阅读量 reads = ' + json.data.reads + '（连续执行两次应 +1）');"
+          ] } }],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{baseUrl}}/api/knowledge/article/{{articleId}}", "host": ["{{baseUrl}}"], "path": ["api", "knowledge", "article", "{{articleId}}"] }
+          }
+        },
+        {
+          "name": "AI 推荐文章",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('HTTP 200', function () { pm.response.to.have.status(200); });",
+            "pm.test('业务码 200', function () { pm.expect(pm.response.json().code).to.eql(200); });"
+          ] } }],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/articles/recommend?limit=3",
+              "host": ["{{baseUrl}}"], "path": ["api", "articles", "recommend"],
+              "query": [{ "key": "limit", "value": "3" }]
+            }
+          }
+        },
+        {
+          "name": "随机治愈语录",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('HTTP 200', function () { pm.response.to.have.status(200); });",
+            "pm.test('有语录内容', function () { pm.expect(pm.response.json().data.content).to.be.a('string').and.not.empty; });"
+          ] } }],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{baseUrl}}/api/quote/random", "host": ["{{baseUrl}}"], "path": ["api", "quote", "random"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "04-AI 对话",
+      "item": [
+        {
+          "name": "可用模型列表",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('HTTP 200', function () { pm.response.to.have.status(200); });",
+            "pm.test('业务码 200', function () { pm.expect(pm.response.json().code).to.eql(200); });"
+          ] } }],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{baseUrl}}/api/chat/models", "host": ["{{baseUrl}}"], "path": ["api", "chat", "models"] }
+          }
+        },
+        {
+          "name": "创建会话（自动保存 sessionId）",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('HTTP 200', function () { pm.response.to.have.status(200); });",
+            "const json = pm.response.json();",
+            "const d = json.data;",
+            "const sid = (d && typeof d === 'object') ? d.id : d;",
+            "pm.test('返回会话 id', function () { pm.expect(sid).to.be.a('number'); });",
+            "pm.collectionVariables.set('sessionId', sid);",
+            "console.log('已保存 sessionId = ' + sid);"
+          ] } }],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": { "raw": "{{baseUrl}}/api/chat/sessions", "host": ["{{baseUrl}}"], "path": ["api", "chat", "sessions"] }
+          }
+        },
+        {
+          "name": "会话列表",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('HTTP 200', function () { pm.response.to.have.status(200); });",
+            "pm.test('业务码 200', function () { pm.expect(pm.response.json().code).to.eql(200); });"
+          ] } }],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{baseUrl}}/api/chat/sessions", "host": ["{{baseUrl}}"], "path": ["api", "chat", "sessions"] }
+          }
+        },
+        {
+          "name": "同步对话（会真实调用大模型，较慢）",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('HTTP 200', function () { pm.response.to.have.status(200); });",
+            "const json = pm.response.json();",
+            "pm.test('业务码 200', function () { pm.expect(json.code).to.eql(200); });",
+            "const ai = (json.data || []).filter(m => m.role === 'assistant').pop();",
+            "pm.test('收到 AI 回复', function () { pm.expect(ai && ai.content).to.be.a('string').and.not.empty; });",
+            "console.log('AI 回复片段：' + (ai ? ai.content.slice(0, 80) : ''));"
+          ] } }],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"sessionId\": {{sessionId}},\n  \"content\": \"我最近总是失眠，白天很累，有什么建议吗？\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/chat/messages", "host": ["{{baseUrl}}"], "path": ["api", "chat", "messages"] }
+          }
+        },
+        {
+          "name": "会话历史消息",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('HTTP 200', function () { pm.response.to.have.status(200); });",
+            "pm.test('业务码 200', function () { pm.expect(pm.response.json().code).to.eql(200); });"
+          ] } }],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/chat/sessions/{{sessionId}}/messages",
+              "host": ["{{baseUrl}}"], "path": ["api", "chat", "sessions", "{{sessionId}}", "messages"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "05-提示词与 RAG（管理端）",
+      "item": [
+        {
+          "name": "提示词模板列表",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('HTTP 200', function () { pm.response.to.have.status(200); });",
+            "pm.test('业务码 200', function () { pm.expect(pm.response.json().code).to.eql(200); });"
+          ] } }],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{baseUrl}}/api/admin/prompt/list", "host": ["{{baseUrl}}"], "path": ["api", "admin", "prompt", "list"] }
+          }
+        },
+        {
+          "name": "模板渲染测试",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('HTTP 200', function () { pm.response.to.have.status(200); });",
+            "const json = pm.response.json();",
+            "pm.test('变量已替换', function () { pm.expect(json.data.rendered).to.not.include('{count}'); });",
+            "console.log('渲染结果：' + json.data.rendered.slice(0, 60));"
+          ] } }],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"scene\": \"quote_gen\",\n  \"vars\": { \"count\": \"3\" }\n}" },
+            "url": { "raw": "{{baseUrl}}/api/admin/prompt/render", "host": ["{{baseUrl}}"], "path": ["api", "admin", "prompt", "render"] }
+          }
+        },
+        {
+          "name": "AI 通道诊断",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('HTTP 200', function () { pm.response.to.have.status(200); });",
+            "const json = pm.response.json();",
+            "console.log('当前通道：' + json.data.current + ' / 本地模型：' + json.data.ollama.model);"
+          ] } }],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{baseUrl}}/api/admin/prompt/channels", "host": ["{{baseUrl}}"], "path": ["api", "admin", "prompt", "channels"] }
+          }
+        },
+        {
+          "name": "RAG 索引状态",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('HTTP 200', function () { pm.response.to.have.status(200); });",
+            "const json = pm.response.json();",
+            "pm.test('已建立索引', function () { pm.expect(json.data.indexedChunks).to.be.above(0); });",
+            "console.log('向量块数：' + json.data.indexedChunks + ' / 嵌入模型：' + json.data.embeddingModel);"
+          ] } }],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{baseUrl}}/api/admin/rag/status", "host": ["{{baseUrl}}"], "path": ["api", "admin", "rag", "status"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "06-管理后台",
+      "item": [
+        {
+          "name": "用户分页列表",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('HTTP 200', function () { pm.response.to.have.status(200); });",
+            "pm.test('业务码 200', function () { pm.expect(pm.response.json().code).to.eql(200); });"
+          ] } }],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/users?page=1&pageSize=5",
+              "host": ["{{baseUrl}}"], "path": ["api", "admin", "users"],
+              "query": [{ "key": "page", "value": "1" }, { "key": "pageSize", "value": "5" }]
+            }
+          }
+        },
+        {
+          "name": "运营数据概览",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('HTTP 200', function () { pm.response.to.have.status(200); });",
+            "pm.test('业务码 200', function () { pm.expect(pm.response.json().code).to.eql(200); });"
+          ] } }],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{baseUrl}}/api/analysis/overview", "host": ["{{baseUrl}}"], "path": ["api", "analysis", "overview"] }
+          }
+        },
+        {
+          "name": "咨询会话分页",
+          "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+            "pm.test('HTTP 200', function () { pm.response.to.have.status(200); });",
+            "pm.test('业务码 200', function () { pm.expect(pm.response.json().code).to.eql(200); });"
+          ] } }],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/consult/sessions?page=1&pageSize=5",
+              "host": ["{{baseUrl}}"], "path": ["api", "admin", "consult", "sessions"],
+              "query": [{ "key": "page", "value": "1" }, { "key": "pageSize", "value": "5" }]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

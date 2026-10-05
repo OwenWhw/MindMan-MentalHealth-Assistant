@@ -78,3 +78,12 @@ export function getRecommendArticles(limit = 3) {
   if (API_MODE === 'mock') return Promise.resolve([])
   return request.get('/articles/recommend', { params: { limit } })
 }
+
+// RSS article synchronization (administrator only)
+export function getCrawlerStatus() {
+  return request.get('/admin/crawler/status')
+}
+
+export function runCrawlerOnce() {
+  return request.post('/admin/crawler/run')
+}

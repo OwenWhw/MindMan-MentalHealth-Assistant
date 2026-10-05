@@ -16,7 +16,9 @@ public class ChatSession {
 
     private Long userId;
     private String title;          // 自动生成 "关于失眠的咨询"
-    private Integer status;        // 1进行中 2已结束
+    private Integer status;        // 1进行中 2已归档
+    private String summary;        // 最近一次 AI 会话总结
+    private LocalDateTime summaryUpdatedAt;
 
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;

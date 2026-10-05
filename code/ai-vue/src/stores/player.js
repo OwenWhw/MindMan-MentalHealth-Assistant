@@ -20,71 +20,71 @@ import { defineStore } from 'pinia'
 export const NOISE_PRESETS = [
   {
     id: 'rain', name: '雨声', desc: '淅淅沥沥的雨点声，让心静下来',
-    cover: 'https://images.unsplash.com/photo-1519692933481-e162a57d6721?w=300&q=80',
+    cover: '/covers/rain.svg',
     color: '#3b82f6', type: 'rain', gain: 0.7,
     src: '/sounds/rain.mp3'
   },
   {
     id: 'ocean', name: '海浪', desc: '潮起潮落，把烦恼冲刷到远方',
-    cover: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=300&q=80',
+    cover: '/covers/ocean.svg',
     color: '#0ea5e9', type: 'ocean', gain: 0.7,
     src: '/sounds/ocean.mp3'
   },
   {
     id: 'forest', name: '森林', desc: '风声与虫鸣，自然的白噪音',
-    cover: 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=300&q=80',
+    cover: '/covers/forest.svg',
     color: '#10b981', type: 'forest', gain: 0.7,
     src: '/sounds/forest.mp3'
   },
   {
     id: 'fire', name: '壁炉', desc: '噼啪柴火声，温暖而安心',
-    cover: 'https://images.unsplash.com/photo-1697834158336-705dbfa2cc9a?w=300&q=80',
+    cover: '/covers/fire.svg',
     color: '#f97316', type: 'fire', gain: 1.3,
     src: '/sounds/fire.mp3'
   },
   {
     id: 'white', name: '纯白噪音', desc: '均匀遮盖杂音，专注工作学习',
-    cover: 'https://images.unsplash.com/photo-1470252649378-9c29740c9fa8?w=300&q=80',
+    cover: '/covers/white.svg',
     color: '#a78bfa', type: 'white', gain: 0.22
   },
   {
     id: 'brown', name: '棕色噪音', desc: '低沉浑厚，最接近入睡环境',
-    cover: 'https://images.unsplash.com/photo-1585314062340-f1a5a7c9328d?w=300&q=80',
+    cover: '/covers/brown.svg',
     color: '#d97706', type: 'brown', gain: 0.6
   },
   {
     id: 'office', name: '办公室', desc: '键盘声、电话铃声，安静的办公氛围',
-    cover: 'https://images.unsplash.com/photo-1497366754035-f200968a6e72?w=300&q=80',
+    cover: '/covers/office.svg',
     color: '#6366f1', type: 'office', gain: 0.7,
     src: '/sounds/office.mp3'
   },
   {
     id: 'coffee', name: '咖啡厅', desc: '人声与杯碟声，像在街角咖啡店',
-    cover: 'https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=300&q=80',
+    cover: '/covers/coffee.svg',
     color: '#b45309', type: 'coffee', gain: 0.7,
     src: '/sounds/coffee.mp3'
   },
   {
     id: 'barber', name: '理发店', desc: '咔嚓咔嚓的剪发声，沉浸式沙龙白噪音',
-    cover: 'https://images.unsplash.com/photo-1521590832167-7bcbfaa6381f?w=300&q=80',
+    cover: '/covers/barber.svg',
     color: '#0d9488', type: 'barber', gain: 0.7,
     src: '/sounds/scissors.mp3'
   },
   {
     id: 'asmr', name: '掏耳 ASMR', desc: '棉签轻触的沙沙声，酥麻治愈放松',
-    cover: 'https://images.unsplash.com/photo-1589365354848-78104c17f92d?w=300&q=80',
+    cover: '/covers/asmr.svg',
     color: '#db2777', type: 'asmr', gain: 0.7,
     src: '/sounds/cloth.mp3'
   },
   {
     id: 'wood', name: '木头声', desc: '笃笃的敲木声，沉稳安宁',
-    cover: 'https://images.unsplash.com/photo-1611072337226-1140ab367200?w=300&q=80',
+    cover: '/covers/wood.svg',
     color: '#92400e', type: 'wood', gain: 0.7,
     src: '/sounds/wood.mp3'
   },
   {
     id: 'library', name: '图书馆', desc: '沙沙的翻书声，沉浸书页之间',
-    cover: 'https://images.unsplash.com/photo-1481627834876-b7833e8f5570?w=300&q=80',
+    cover: '/covers/library.svg',
     color: '#78716c', type: 'library', gain: 0.7,
     src: '/sounds/library.mp3'
   }

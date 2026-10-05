@@ -1,6 +1,7 @@
 package com.mindman.controller;
 
 import com.mindman.common.R;
+import com.mindman.ai.MindManAgent;
 import com.mindman.config.AiConfig;
 import com.mindman.dto.ChatMessageVO;
 import com.mindman.dto.ChatSendDTO;
@@ -9,7 +10,6 @@ import com.mindman.dto.ChatSessionVO;
 import com.mindman.entity.ChatMessage;
 import com.mindman.entity.ChatSession;
 import com.mindman.mapper.ChatMessageMapper;
-import com.mindman.service.AiChatService;
 import com.mindman.service.ChatService;
 import com.mindman.util.EmotionAnalyzer;
 import com.mindman.util.LoginUser;
@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.util.Collections;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -60,8 +61,8 @@ import java.util.concurrent.Executors;
 public class ChatController {
 
     private final ChatService chatService;
-    private final AiChatService aiChatService;
     private final ChatMessageMapper messageMapper;
+    private final MindManAgent mindManAgent;
 
     /** 异步线程池，用于 SSE 流式推送（不阻塞 Servlet 线程） */
     private final ExecutorService sseExecutor = Executors.newCachedThreadPool(r -> {
@@ -104,6 +105,13 @@ public class ChatController {
         return R.ok();
     }
 
+    @PutMapping("/sessions/{id}/restore")
+    @Operation(summary = "恢复已归档会话")
+    public R<Void> restoreSession(@PathVariable Long id) {
+        chatService.restoreSession(LoginUser.get(), id);
+        return R.ok();
+    }
+
     // ======================== 消息接口 ========================
 
     @PostMapping("/messages")
@@ -121,6 +129,48 @@ public class ChatController {
         return R.ok(chatService.listMessages(LoginUser.get(), id, page, size));
     }
 
+    @PostMapping("/sessions/{id}/summary")
+    @Operation(summary = "生成当前咨询会话的 AI 总结")
+    public R<String> summarizeSession(@PathVariable Long id) {
+        Long userId = LoginUser.get();
+        ChatSession session = chatService.getSessionEntity(userId, id);
+        if (session.getSummary() != null && !session.getSummary().isBlank()) {
+            return R.ok(session.getSummary());
+        }
+
+        List<ChatMessage> recent = messageMapper.selectList(
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<ChatMessage>()
+                .eq(ChatMessage::getSessionId, id)
+                .eq(ChatMessage::getUserId, userId)
+                .in(ChatMessage::getRole, List.of("user", "assistant"))
+                .ne(ChatMessage::getDeliveryStatus, "interrupted")
+                .ne(ChatMessage::getDeliveryStatus, "failed")
+                .ne(ChatMessage::getDeliveryStatus, "streaming")
+                .orderByDesc(ChatMessage::getId)
+                        .last("LIMIT 30")
+        );
+        if (recent == null || recent.stream().noneMatch(message -> "user".equals(message.getRole()))) {
+            return R.badRequest("当前会话还没有可总结的倾诉内容");
+        }
+
+        recent = new ArrayList<>(recent);
+        Collections.reverse(recent);
+        StringBuilder transcript = new StringBuilder();
+        for (ChatMessage message : recent) {
+            transcript.append("user".equals(message.getRole()) ? "用户：" : "AI：")
+                    .append(clip(message.getContent(), 600))
+                    .append('\n');
+        }
+        try {
+            String summary = mindManAgent.summarize(transcript.toString());
+            chatService.saveSessionSummary(userId, id, summary);
+            return R.ok(summary);
+        } catch (Exception e) {
+            log.error("生成咨询会话总结失败: sessionId={}, error={}", id, e.getMessage(), e);
+            return R.error(503, "AI 总结暂时不可用，请稍后重试");
+        }
+    }
+
     // ======================== SSE 流式接口 ⭐ ========================
 
     /**
@@ -132,7 +182,7 @@ public class ChatController {
      * <ol>
      *   <li>校验会话归属，保存用户消息到数据库</li>
      *   <li>创建 {@link SseEmitter}（超时 120 秒）</li>
-     *   <li>异步调用 {@link AiChatService#chatStream} 获取 Flux 流</li>
+     *   <li>异步调用 {@link MindManAgent#respond} 获取 Flux 流</li>
      *   <li>将每个文本片段通过 SseEmitter 推送给前端</li>
      *   <li>流结束后保存完整 AI 回复到数据库，发送 done 事件</li>
      * </ol>
@@ -157,12 +207,13 @@ public class ChatController {
         SseEmitter emitter = new SseEmitter(120_000L);
 
         // 异步执行，不阻塞 Tomcat IO 线程
-        sseExecutor.execute(() -> {
+            sseExecutor.execute(() -> {
+            ChatMessage pendingAssistant = null;
             try {
                 // 1. 校验会话归属
                 ChatSession session = chatService.getSessionEntity(userId, dto.getSessionId());
-                if (session == null) {
-                    sendError(emitter, "会话不存在");
+                if (Integer.valueOf(2).equals(session.getStatus())) {
+                    sendError(emitter, "会话已归档，请先从会话历史中恢复");
                     return;
                 }
 
@@ -170,20 +221,24 @@ public class ChatController {
                 ChatMessage userMsg = new ChatMessage();
                 userMsg.setSessionId(dto.getSessionId());
                 userMsg.setUserId(userId);
-                userMsg.setContent(dto.getContent().trim());
+                String displayContent = dto.getDisplayContentOrContent().trim();
+                userMsg.setContent(displayContent);
                 userMsg.setRole("user");
                 userMsg.setCreatedAt(LocalDateTime.now());
                 messageMapper.insert(userMsg);
 
                 // 2.1 刷新会话：首条消息自动命名 + 更新 updatedAt，
                 //     保证流式聊天后会话列表仍按最近使用排序（否则切页后可能恢复错会话）
-                chatService.touchSession(userId, dto.getSessionId(), dto.getContent());
+                chatService.touchSession(userId, dto.getSessionId(), displayContent);
+
+                pendingAssistant = createPendingAiMessage(dto.getSessionId(), userId);
+                ChatMessage assistantMsg = pendingAssistant;
 
                 // 3. 构建上下文并调用 AI 流式服务
-                String context = buildContext(dto.getSessionId());
+                String context = buildContext(dto.getSessionId(), userMsg.getId(), assistantMsg.getId());
 
                 StringBuilder fullReply = new StringBuilder();
-                aiChatService.chatStream(dto.getContent(), context, dto.getModel())
+                mindManAgent.respond(userId, dto, context)
                         .doOnNext(chunk -> {
                             // 4. 逐段推送到前端
                             fullReply.append(chunk);
@@ -191,22 +246,33 @@ public class ChatController {
                         })
                         .doOnComplete(() -> {
                             // 5. 流结束：保存 AI 消息到库 + 发送 done 事件
-                            saveAiMessage(dto.getSessionId(), userId, fullReply.toString(), dto.getContent());
-                            sendDone(emitter, fullReply.toString(), analyzeEmotion(dto.getContent()));
+                            if (fullReply.toString().isBlank()) {
+                                finishAiMessage(assistantMsg, "", "failed", null);
+                                sendError(emitter, "AI 没有生成有效回复，请重试");
+                                return;
+                            }
+                            finishAiMessage(assistantMsg, fullReply.toString(), "complete", analyzeEmotion(displayContent));
+                            sendDone(emitter, fullReply.toString(), analyzeEmotion(displayContent));
                             log.info("SSE 流式输出完成: sessionId={}, replyLen={}", dto.getSessionId(), fullReply.length());
                         })
-                        .doOnError(e -> {
+                        .onErrorResume(e -> {
                             log.error("SSE 流式输出异常: {}", e.getMessage());
-                            // 如果已产生部分回复也保存
-                            if (fullReply.length() > 0) {
-                                saveAiMessage(dto.getSessionId(), userId, fullReply.toString(), dto.getContent());
-                            }
+                            finishAiMessage(assistantMsg, fullReply.toString(),
+                                    fullReply.length() > 0 ? "interrupted" : "failed", null);
                             sendError(emitter, "AI 服务暂时不可用，请稍后重试");
+                            return reactor.core.publisher.Flux.empty();
                         })
                         .blockLast();  // 阻塞等待流完成（已在独立线程中）
 
             } catch (Exception e) {
                 log.error("SSE 处理异常: {}", e.getMessage(), e);
+                if (pendingAssistant != null && "streaming".equals(pendingAssistant.getDeliveryStatus())) {
+                    try {
+                        finishAiMessage(pendingAssistant, "", "failed", null);
+                    } catch (Exception persistError) {
+                        log.error("无法保存 AI 失败状态: sessionId={}", dto.getSessionId(), persistError);
+                    }
+                }
                 sendError(emitter, "服务器内部错误");
             }
         });
@@ -262,7 +328,8 @@ public class ChatController {
             emitter.send(SseEmitter.event()
                     .name("error")
                     .data(payload));
-            emitter.completeWithError(new RuntimeException(error));
+            // 错误已通过 SSE 协议发出，正常结束流，避免 Spring 再尝试写 JSON 错误体。
+            emitter.complete();
         } catch (IOException e) {
             log.warn("SSE 发送错误事件失败: {}", e.getMessage());
         }
@@ -270,15 +337,25 @@ public class ChatController {
 
     // ======================== 内部方法 ========================
 
+    private String clip(String value, int maxCodePoints) {
+        if (value == null) return "";
+        String normalized = value.replaceAll("[\\r\\n\\t]+", " ").trim();
+        int count = normalized.codePointCount(0, normalized.length());
+        if (count <= maxCodePoints) return normalized;
+        return normalized.substring(0, normalized.offsetByCodePoints(0, maxCodePoints)) + "…";
+    }
+
     /**
      * 构建会话上下文（最近10条消息作为对话历史）
      */
-    private String buildContext(Long sessionId) {
+    private String buildContext(Long sessionId, Long excludeMessageId, Long pendingAssistantId) {
         // 通过 Service 层获取会更规范，但 Controller 直接查也可以避免循环依赖
         List<ChatMessage> recentMessages = messageMapper.selectList(
                 new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<ChatMessage>()
                         .eq(ChatMessage::getSessionId, sessionId)
+                        .ne(excludeMessageId != null, ChatMessage::getId, excludeMessageId)
                         .orderByDesc(ChatMessage::getCreatedAt)
+                        .orderByDesc(ChatMessage::getId)
                         .last("LIMIT 10")
         );
 
@@ -287,25 +364,32 @@ public class ChatController {
         StringBuilder sb = new StringBuilder();
         for (int i = recentMessages.size() - 1; i >= 0; i--) {
             ChatMessage m = recentMessages.get(i);
+            if (pendingAssistantId != null && pendingAssistantId.equals(m.getId())) continue;
+            if ("assistant".equals(m.getRole()) && m.getDeliveryStatus() != null
+                    && !"complete".equals(m.getDeliveryStatus())) continue;
             String role = "user".equals(m.getRole()) ? "用户" : "AI";
             sb.append(role).append("：").append(m.getContent()).append("\n");
         }
         return sb.toString();
     }
 
-    /**
-     * 保存 AI 回复消息到数据库
-     */
-    private void saveAiMessage(Long sessionId, Long userId, String content, String userContent) {
-        if (content == null || content.isBlank()) return;
+    private ChatMessage createPendingAiMessage(Long sessionId, Long userId) {
         ChatMessage msg = new ChatMessage();
         msg.setSessionId(sessionId);
         msg.setUserId(userId);
         msg.setRole("assistant");
-        msg.setContent(content);
-        msg.setEmotion(analyzeEmotion(userContent));
+        msg.setContent("");
+        msg.setDeliveryStatus("streaming");
         msg.setCreatedAt(LocalDateTime.now());
         messageMapper.insert(msg);
+        return msg;
+    }
+
+    private void finishAiMessage(ChatMessage msg, String content, String deliveryStatus, String emotion) {
+        msg.setContent(content == null ? "" : content);
+        msg.setDeliveryStatus(deliveryStatus);
+        msg.setEmotion(emotion);
+        messageMapper.updateById(msg);
     }
 
     /**

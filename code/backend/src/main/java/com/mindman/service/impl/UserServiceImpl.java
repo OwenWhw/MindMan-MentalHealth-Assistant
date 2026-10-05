@@ -122,6 +122,9 @@ public class UserServiceImpl implements UserService {
         if (user == null) {
             throw new NotFoundException("用户不存在");
         }
+        // 当前用户接口只返回展示信息，不能把密码哈希等存储字段暴露给前端。
+        user.setPassword(null);
+        user.setDeleted(null);
         return user;
     }
 

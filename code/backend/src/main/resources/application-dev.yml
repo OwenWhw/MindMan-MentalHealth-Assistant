@@ -24,12 +24,21 @@ spring:
       password: ${REDIS_PASSWORD:}
       database: 0
       timeout: 5000ms
+  cloud:
+    nacos:
+      discovery:
+        # 本地默认关闭，避免未启动 Nacos 时影响单体开发；Docker Compose 中会启用。
+        enabled: ${NACOS_ENABLED:false}
+        server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
+        namespace: ${NACOS_NAMESPACE:}
+        group: ${NACOS_GROUP:DEFAULT_GROUP}
 
 # 阿里云百炼 AI 配置（OpenAI 兼容接口）
 ai:
-  # AI 通道选择：auto=云端优先自动切换 / cloud=强制云端 / ollama=强制本地模型
-  provider: ${AI_PROVIDER:auto}
   bailian:
+    # AI 通道选择：auto=云端优先自动切换 / cloud=强制云端 / ollama=强制本地模型
+    # AiConfig 绑定到 ai.bailian，故该项必须位于 bailian 下。
+    provider: ${AI_PROVIDER:auto}
     api-key: ${AI_BAILIAN_API_KEY:}
     base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
     model: qwen3.8-max
@@ -37,9 +46,9 @@ ai:
     temperature: 0.8
     connect-timeout: 10s
     read-timeout: 60s
-  # Ollama 本地模型（OpenAI 兼容 /v1 端点；先 ollama pull <model>，再置 enabled=true）
+  # Ollama 本地模型（开发环境默认启用；需要运行服务并先 pull 对应模型，可用 AI_OLLAMA_ENABLED=false 关闭）
   ollama:
-    enabled: ${AI_OLLAMA_ENABLED:false}
+    enabled: ${AI_OLLAMA_ENABLED:true}
     base-url: ${AI_OLLAMA_BASE_URL:http://localhost:11434/v1}
     model: ${AI_OLLAMA_MODEL:qwen2.5:7b}
     max-tokens: 2048
@@ -53,3 +62,19 @@ ai:
     top-k: 3                # 检索返回片段数
     min-score: 0.35         # 余弦相似度阈值
     chunk-size: 500         # 文章分块长度（字符）
+
+mindman:
+  python-agent:
+    enabled: ${MINDMAN_PY_AGENT_ENABLED:false}
+    base-url: ${MINDMAN_PY_AGENT_BASE_URL:http://127.0.0.1:8091}
+    token: ${MINDMAN_PY_AGENT_TOKEN:}
+    timeout-seconds: ${MINDMAN_PY_AGENT_TIMEOUT_SECONDS:50}
+  crawler:
+    enabled: ${MINDMAN_CRAWLER_ENABLED:true}
+    cron: ${MINDMAN_CRAWLER_CRON:0 30 4 * * ?}
+    zone: ${MINDMAN_CRAWLER_ZONE:Asia/Shanghai}
+    daily-limit: ${MINDMAN_CRAWLER_DAILY_LIMIT:20}
+    per-feed-limit: ${MINDMAN_CRAWLER_PER_FEED_LIMIT:12}
+    max-age-days: ${MINDMAN_CRAWLER_MAX_AGE_DAYS:180}
+    request-timeout-seconds: ${MINDMAN_CRAWLER_TIMEOUT_SECONDS:15}
+    min-check-interval-hours: ${MINDMAN_CRAWLER_MIN_CHECK_INTERVAL_HOURS:20}

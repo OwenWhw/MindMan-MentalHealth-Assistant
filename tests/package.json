@@ -1,0 +1,10 @@
+{
+  "name": "mindman-test-runner",
+  "private": true,
+  "scripts": {
+    "api": "newman run mindman-smoke.postman_collection.json"
+  },
+  "devDependencies": {
+    "newman": "^6.2.1"
+  }
+}

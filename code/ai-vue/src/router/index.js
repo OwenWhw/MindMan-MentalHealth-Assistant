@@ -54,17 +54,11 @@ const routes = [
   },
   {
     path: '/home',
-    component: () => import('@/components/UserLayout.vue'),
-    children: [
-      {
-        path: '',
-        component: () => import('@/views/user/HomeView.vue')
-      },
-      {
-        path: 'consult',
-        component: () => import('@/views/user/ConsultView.vue')
-      }
-    ]
+    component: () => import('@/views/user/NewHomeView.vue')
+  },
+  {
+    path: '/home/consult',
+    redirect: (to) => ({ path: '/consult', query: to.query, hash: to.hash })
   },
   {
     path: '/home/articles',

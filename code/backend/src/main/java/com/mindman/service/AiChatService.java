@@ -46,4 +46,7 @@ public interface AiChatService {
      * @return 文本片段 Flux 流
      */
     Flux<String> chatStream(String userMessage, String context, String model);
+
+    /** Summarize a transcript already authorized by the caller. */
+    String summarizeConversation(String transcript);
 }

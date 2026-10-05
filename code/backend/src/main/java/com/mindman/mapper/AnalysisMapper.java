@@ -37,14 +37,15 @@ public interface AnalysisMapper {
     @Select("SELECT COUNT(*) FROM chat_session WHERE DATE(created_at) = CURDATE()")
     long countSessionToday();
 
-    @Select("SELECT COALESCE(AVG(emotion_score), 0) FROM emotion_record")
-    double avgEmotionScore();
+    @Select("SELECT AVG(emotion_score) FROM emotion_record WHERE rating_source = 'self_reported'")
+    Double avgEmotionScore();
 
     @Select("SELECT COALESCE(AVG(TIMESTAMPDIFF(MINUTE, created_at, updated_at)), 0) FROM chat_session")
     double avgSessionDuration();
 
-    @Select("SELECT DATE(record_date) AS date, COALESCE(AVG(emotion_score),0) AS avgScore, COUNT(*) AS cnt " +
-            "FROM emotion_record WHERE record_date >= DATE_SUB(CURDATE(), INTERVAL #{days} DAY) " +
+    @Select("SELECT DATE(record_date) AS date, AVG(emotion_score) AS avgScore, COUNT(emotion_score) AS cnt " +
+            "FROM emotion_record WHERE rating_source = 'self_reported' " +
+            "AND record_date >= DATE_SUB(CURDATE(), INTERVAL #{days} DAY) " +
             "GROUP BY DATE(record_date)")
     List<DayAvgRow> emotionDaily(@Param("days") int days);
 
@@ -78,12 +79,12 @@ public interface AnalysisMapper {
 
     class DayAvgRow {
         private LocalDate date;
-        private double avgScore;
+        private Double avgScore;
         private long count;
         public LocalDate getDate() { return date; }
         public void setDate(LocalDate date) { this.date = date; }
-        public double getAvgScore() { return avgScore; }
-        public void setAvgScore(double avgScore) { this.avgScore = avgScore; }
+        public Double getAvgScore() { return avgScore; }
+        public void setAvgScore(Double avgScore) { this.avgScore = avgScore; }
         public long getCount() { return count; }
         public void setCount(long count) { this.count = count; }
     }

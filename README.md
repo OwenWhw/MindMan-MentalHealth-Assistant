@@ -74,12 +74,14 @@ MindMan 是一个面向普通用户的心理健康自助平台，同时提供运
 | 类别 | 选型 | 说明 |
 | --- | --- | --- |
 | 基础框架 | Spring Boot 3.4.1 | Java 17 |
+| 微服务 | Spring Cloud Alibaba + Nacos | 服务注册与发现；本地单体开发可关闭 |
 | ORM | MyBatis-Plus 3.5.16 | 分页插件、逻辑删除、自动填充 |
 | 数据库 | MySQL 8.0 | 6 张业务表 |
-| 缓存 | Redis | Spring Data Redis |
+| 缓存 | Redis | Spring Data Redis + Spring Cache；分类树缓存 1 小时，写操作自动失效 |
 | 安全 | Spring Security + JWT (jjwt 0.12.x) | BCrypt 加密，Token 有效期 7 天 |
 | 响应式 | Spring WebFlux (WebClient) | 调用大模型 API + SSE 流式推送 |
 | AI | 阿里云百炼 DashScope（OpenAI 兼容） | 备选：硅基流动；未配置时自动降级为本地共情话术 |
+| Python Agent（可选） | FastAPI + OpenAI 兼容接口 | 仅回看情绪花园当前一条记录；部署与验证见 [说明](./code/python-agent/README.md) |
 | 对象存储 | 阿里云 OSS SDK | 文件上传 |
 | 接口文档 | Knife4j 4.5.0 / OpenAPI 3 | `/doc.html` |
 | 工具 | Hutool、Lombok、Validation、AOP | |
@@ -153,6 +155,7 @@ MindMan-MentalHealth-Assistant/
 | Node.js | 18+（推荐 20 LTS） |
 | MySQL | 8.0+ |
 | Redis | 5.0+（可选，未启动时部分缓存功能降级） |
+| Nacos | 2.5+（容器化演示 Spring Cloud 服务注册时需要） |
 
 ### 5.2 数据库初始化
 
@@ -189,6 +192,11 @@ cp application-local.yml.example application-local.yml
 > 也可以直接用操作系统环境变量注入，优先级高于 `application-local.yml`。
 >
 > 💡 未配置任何 AI Key 时，服务会自动降级为**本地共情话术回复**，保证功能可用、不报错。
+
+### 5.3.1 Redis 缓存与 Spring Cloud
+
+- `GET /api/knowledge/category/tree` 使用 Spring Cache 缓存到 Redis，TTL 为 1 小时；新增、编辑、删除分类或文章时会自动清除缓存，下一次读取回源 MySQL。
+- 后端已接入 Spring Cloud Alibaba Nacos Discovery。普通本地开发保持 `NACOS_ENABLED=false`；用 Docker Compose 启动时，后端会自动注册为 `mindman-server`，可在 Nacos 控制台查看。
 
 ### 5.4 启动后端
 
@@ -272,6 +280,19 @@ python tools/serve_dist.py
 
 ## 八、部署
 
+### Docker Compose（推荐演示方式）
+
+Docker Desktop 启动后，在项目根目录执行：
+
+```bash
+copy .env.example .env
+docker compose up -d --build
+```
+
+访问：前端 `http://localhost`、后端 API `http://localhost:8080/api`、Nacos 控制台 `http://localhost:8848/nacos`（默认账号密码 `nacos/nacos`）。
+
+该编排会启动 MySQL、Redis、Nacos、Spring Boot 后端和 Vue 前端共 5 个容器。查看服务注册：进入 Nacos 控制台后，选择“服务管理 → 服务列表”，可见 `mindman-server`。
+
 ### 后端
 
 ```bash
@@ -310,6 +331,7 @@ location / {
 | [`docs/openapi.yaml`](./docs/openapi.yaml) | OpenAPI 3 规范文件 |
 | [`docs/接口文档.md`](./docs/接口文档.md) | 早期设计稿（字段 `msg` 为历史命名，实际实现为 `message`） |
 | [`docs/README.md`](./docs/README.md) | 文档目录说明 |
+| [`tests/README.md`](./tests/README.md) | JMeter → Postman → Playwright 一键测试说明 |
 
 ---
 

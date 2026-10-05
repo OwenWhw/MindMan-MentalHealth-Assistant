@@ -18,6 +18,7 @@ if (!import.meta.env.VITE_PREVIEW) {
   await import('@fontsource/noto-serif-sc/600.css')
 }
 import './style.css'
+import './site-theme.css'
 import App from './App.vue'
 import router from './router'
 

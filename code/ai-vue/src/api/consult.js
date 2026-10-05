@@ -7,6 +7,7 @@ import {
   mockMessageList,
   mockDeleteSession,
   mockArchiveSession,
+  mockRestoreSession,
   mockSendChatMessage,
   mockAnalyzeEmotion,
   mockAvailableModels
@@ -14,19 +15,16 @@ import {
 
 // 发起咨询会话（用户端新建会话）
 export function createSession(data) {
-  if (API_MODE === 'mock') return mockCreateSession(data)
+  if (API_MODE === 'mock') return mockCreateSession(data).then((session) => ({ ...session, id: session.sessionId }))
   return request.post('/chat/sessions', data || {})
-}
-
-// 分页查询咨询会话
-export function getSessionPage(params) {
-  if (API_MODE === 'mock') return mockSessionPage(params)
-  return request.get('/chat/session/page', { params })
 }
 
 // 获取我的会话列表（用户端）
 export function getMySessions(params) {
-  if (API_MODE === 'mock') return mockMySessions(params)
+  if (API_MODE === 'mock') return mockMySessions(params).then((page) => ({
+    ...page,
+    list: page.list.map((session) => ({ ...session, id: session.sessionId }))
+  }))
   return request.get('/chat/sessions', { params })
 }
 
@@ -34,6 +32,12 @@ export function getMySessions(params) {
 export function getMessageList(sessionId) {
   if (API_MODE === 'mock') return mockMessageList(sessionId)
   return request.get(`/chat/sessions/${sessionId}/messages`)
+}
+
+// 总结当前登录用户拥有的会话；mock 模式下明确提示该功能需要真实 AI 后端。
+export function summarizeSession(sessionId) {
+  if (API_MODE === 'mock') return Promise.reject(new Error('AI 总结需要连接真实后端'))
+  return request.post(`/chat/sessions/${sessionId}/summary`, {}, { timeout: 60000 })
 }
 
 // 删除咨询会话
@@ -68,10 +72,10 @@ export function archiveSession(id) {
   return request.put(`/chat/sessions/${id}/archive`)
 }
 
-// 发送咨询消息（同步模式，一次性返回完整回复）
-export function sendChatMessage(sessionId, content, model) {
-  if (API_MODE === 'mock') return mockSendChatMessage(sessionId, content)
-  return request.post('/chat/messages', { sessionId, content, model })
+// 从已归档列表恢复会话后继续对话
+export function restoreSession(id) {
+  if (API_MODE === 'mock') return mockRestoreSession(id)
+  return request.put(`/chat/sessions/${id}/restore`)
 }
 
 // AI 情绪分析：根据用户倾诉内容分析压力值 / 焦虑指数 / 睡眠风险
@@ -117,7 +121,7 @@ export function getAvailableModels() {
  * }
  * ```
  */
-export async function* streamChatMessage(sessionId, content, model) {
+export async function* streamChatMessage(sessionId, content, model, contextOptions = {}) {
   // ── Mock 模式：模拟流式输出 ──
   if (API_MODE === 'mock') {
     const data = await mockSendChatMessage(sessionId, content)
@@ -130,8 +134,9 @@ export async function* streamChatMessage(sessionId, content, model) {
     let i = 0
     while (i < total) {
       await new Promise((r) => setTimeout(r, 26 + Math.random() * 30))
+      const previous = i
       i = Math.min(total, i + 1 + Math.floor(Math.random() * 2))
-      yield { text: text.slice(0, i), done: i >= total, cards: data.cards || [] }
+      yield { text: text.slice(previous, i), done: i >= total, cards: data.cards || [] }
     }
     return
   }
@@ -147,7 +152,15 @@ export async function* streamChatMessage(sessionId, content, model) {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`
       },
-      body: JSON.stringify({ sessionId, content, model })
+      body: JSON.stringify({
+        sessionId,
+        content,
+        model,
+        displayContent: contextOptions.displayContent,
+        includeGardenContext: !!contextOptions.includeGardenContext,
+        referenceArticleId: contextOptions.referenceArticleId || undefined,
+        articleTranslationMode: !!contextOptions.articleTranslationMode
+      })
     })
 
     // HTTP 错误处理
@@ -172,6 +185,7 @@ export async function* streamChatMessage(sessionId, content, model) {
     const reader = response.body.getReader()
     const decoder = new TextDecoder()
     let buffer = ''
+    let serverDone = false
 
     while (true) {
       const { done, value } = await reader.read()
@@ -193,6 +207,7 @@ export async function* streamChatMessage(sessionId, content, model) {
 
           // [DONE] 标记 — 流结束
           if (payload === '[DONE]') {
+            serverDone = true
             yield { text: '', done: true }
             return
           }
@@ -214,7 +229,10 @@ export async function* streamChatMessage(sessionId, content, model) {
             }
 
             // done=true 时结束
-            if (parsed.done) return
+            if (parsed.done) {
+              serverDone = true
+              return
+            }
           } catch (e) {
             // JSON 解析失败 → 可能是非标准数据，跳过
             if (e instanceof SyntaxError) {
@@ -227,8 +245,7 @@ export async function* streamChatMessage(sessionId, content, model) {
       }
     }
 
-    // 循环正常退出但未收到 done 事件 → 补发完成信号
-    yield { text: '', done: true }
+    if (!serverDone) throw new Error('对话连接中断，未收到完整回复')
 
   } catch (e) {
     // 标记错误是否已被处理（避免上层重复提示）

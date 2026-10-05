@@ -115,19 +115,24 @@ onMounted(loadDiaries)
         :data="tableData"
         stripe
       >
-        <el-table-column prop="sessionId" label="会话ID" width="100" />
-        <el-table-column label="用户" width="110">
+        <el-table-column prop="sessionId" label="会话ID" width="86" />
+        <el-table-column label="用户" width="100">
           <template #default="{ row }">
             <UserAvatar :name="row.userName" :user-id="row.userId" :avatar="row.avatar" />
           </template>
         </el-table-column>
-        <el-table-column prop="recordDate" label="记录日期" width="110" />
-        <el-table-column label="情绪评分" width="170" align="center">
+        <el-table-column prop="recordDate" label="记录日期" width="112" />
+        <el-table-column label="情绪评分" width="146" align="center">
           <template #default="{ row }">
-            <el-rate :model-value="row.emotionScore" disabled />
+            <div class="score-cell">
+              <el-rate :model-value="row.emotionScore" disabled />
+              <el-tag size="small" effect="plain" :type="row.ratingSource === 'self_reported' ? 'success' : 'info'">
+                {{ row.ratingSource === 'self_reported' ? '用户自评' : '来源未知' }}
+              </el-tag>
+            </div>
           </template>
         </el-table-column>
-        <el-table-column label="生活指标" width="150">
+        <el-table-column label="生活指标" width="118">
           <template #default="{ row }">
             <div class="life-indicators">
               <span>睡眠 {{ row.sleepScore }}/5</span>
@@ -135,9 +140,9 @@ onMounted(loadDiaries)
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="trigger" label="情绪触发因素" min-width="130" show-overflow-tooltip />
-        <el-table-column prop="content" label="日记内容" min-width="180" show-overflow-tooltip />
-        <el-table-column label="操作" width="140" fixed="right">
+        <el-table-column prop="trigger" label="情绪触发因素" min-width="120" show-overflow-tooltip />
+        <el-table-column prop="content" label="日记内容" min-width="160" show-overflow-tooltip />
+        <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="openDetail(row)">详情</el-button>
             <el-button link type="danger" size="small" @click="handleDelete(row)">删除</el-button>
@@ -180,6 +185,12 @@ onMounted(loadDiaries)
           <el-rate :model-value="currentDiary.emotionScore" disabled />
         </div>
         <div class="detail-row">
+          <span class="detail-label">评分来源</span>
+          <el-tag size="small" effect="plain" :type="currentDiary.ratingSource === 'self_reported' ? 'success' : 'info'">
+            {{ currentDiary.ratingSource === 'self_reported' ? '用户自评' : '来源未知，未纳入趋势统计' }}
+          </el-tag>
+        </div>
+        <div class="detail-row">
           <span class="detail-label">生活指标</span>
           <span>睡眠 {{ currentDiary.sleepScore }}/5 · 压力 {{ currentDiary.stressScore }}/5</span>
         </div>
@@ -220,6 +231,14 @@ onMounted(loadDiaries)
   font-size: 12px;
   color: #9ca3af;
 }
+
+.score-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+.score-cell :deep(.el-tag) { height: 19px; padding: 0 6px; font-size: 10px; }
 
 .life-indicators {
   display: flex;

@@ -4,6 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import PageHead from '@/components/PageHead.vue'
 import TableSearch from '@/components/TableSearch.vue'
 import UserAvatar from '@/components/UserAvatar.vue'
+import { renderChatMarkdown } from '@/utils/chatMarkdown'
 import { getAdminSessionPage, getAdminMessages, deleteAdminSession } from '@/api/consult'
 
 const statusOptions = [
@@ -210,7 +211,8 @@ onMounted(loadSessions)
               <span class="sender-name">{{ msg.role === 'user' ? '用户' : 'AI助手' }}</span>
               <span class="sender-time">{{ formatTime(msg.createdAt) }}</span>
             </div>
-            <div class="chat-content">{{ msg.content }}</div>
+            <div v-if="msg.role === 'assistant'" class="chat-content chat-markdown" v-html="renderChatMarkdown(msg.content)"></div>
+            <div v-else class="chat-content">{{ msg.content }}</div>
           </div>
         </div>
         <el-empty v-if="!messageLoading && !messages.length" description="暂无消息" :image-size="70" />

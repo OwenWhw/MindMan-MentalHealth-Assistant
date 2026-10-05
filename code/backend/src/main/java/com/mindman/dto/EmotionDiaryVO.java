@@ -26,6 +26,7 @@ public class EmotionDiaryVO {
     private Integer emotionScore;
     private Integer sleepScore;
     private Integer stressScore;
+    private String ratingSource;
     private String trigger;
     private String content;
     private String emotion;
@@ -46,6 +47,7 @@ public class EmotionDiaryVO {
         vo.setEmotionScore(r.getEmotionScore());
         vo.setSleepScore(r.getSleepScore());
         vo.setStressScore(r.getStressScore());
+        vo.setRatingSource(r.getRatingSource());
         vo.setTrigger(r.getTrigger());
         vo.setContent(r.getNote());
         vo.setEmotion(r.getEmotion());
@@ -70,6 +72,8 @@ public class EmotionDiaryVO {
     public void setSleepScore(Integer sleepScore) { this.sleepScore = sleepScore; }
     public Integer getStressScore() { return stressScore; }
     public void setStressScore(Integer stressScore) { this.stressScore = stressScore; }
+    public String getRatingSource() { return ratingSource; }
+    public void setRatingSource(String ratingSource) { this.ratingSource = ratingSource; }
     public String getTrigger() { return trigger; }
     public void setTrigger(String trigger) { this.trigger = trigger; }
     public String getContent() { return content; }

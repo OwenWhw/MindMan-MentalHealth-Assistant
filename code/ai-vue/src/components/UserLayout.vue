@@ -2,20 +2,15 @@
 import { useRoute } from 'vue-router'
 import AppNavBar from '@/components/AppNavBar.vue'
 import UserDropdown from '@/components/UserDropdown.vue'
+import { USER_NAV_ACTIONS } from '@/constants/userNavigation'
 
 const route = useRoute()
 
-const navActions = [
-  { key: 'consult',  title: 'AI 咨询',  icon: 'ChatDotRound', path: '/consult' },
-  { key: 'garden',   title: '情绪花园', icon: 'Cherry',       path: '/garden' },
-  { key: 'articles', title: '知识文章', icon: 'Collection',   path: '/home/articles' },
-  { key: 'home',     title: '回到主页', icon: 'HomeFilled',   path: '/home' }
-]
 </script>
 
 <template>
   <div class="user-layout">
-    <AppNavBar :actions="navActions" :current-path="route.path">
+    <AppNavBar :actions="USER_NAV_ACTIONS" :current-path="route.path">
       <template #actions-after>
         <UserDropdown />
       </template>
@@ -36,8 +31,8 @@ const navActions = [
   min-height: 100vh;
   overflow-x: hidden;
   background:
-    radial-gradient(900px 360px at 50% -160px, rgba(47, 111, 219, 0.14), transparent 70%),
-    #f8fafc;
+    radial-gradient(900px 360px at 50% -160px, rgba(121, 156, 115, 0.15), transparent 70%),
+    #faf9f5;
 }
 .user-main { flex: 1 0 auto; min-height: 0; }
 .user-footer {
@@ -45,8 +40,8 @@ const navActions = [
   padding: 24px;
   text-align: center;
   font-size: 13px;
-  color: #9ca3af;
-  border-top: 1px solid #eceef1;
-  background: #ffffff;
+  color: #849487;
+  border-top: 1px solid #e2e9de;
+  background: #fffdf9;
 }
 </style>

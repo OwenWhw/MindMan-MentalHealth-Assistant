@@ -19,8 +19,8 @@ public class ChatSessionVO {
 
     private Long id;
     private String title;
-    private Integer status;        // 1进行中 2已结束
-    private String statusText;     // 进行中 / 已结束
+    private Integer status;        // 1进行中 2已归档
+    private String statusText;     // 进行中 / 已归档
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -32,4 +32,5 @@ public class ChatSessionVO {
 
     /** 未读消息数（暂定0，后续接入推送时计算） */
     private Integer unreadCount;
+
 }

@@ -1,9 +1,14 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { fileURLToPath, URL } from 'node:url'
 
 // https://vite.dev/config/
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  // 本地默认连接 8080；端口被其他项目占用时可在 .env 中覆盖。
+  const env = loadEnv(mode, process.cwd(), 'VITE_')
+  const apiProxyTarget = env.VITE_API_PROXY_TARGET || 'http://localhost:8080'
+
+  return {
   plugins: [vue()],
   resolve: {
     alias: {
@@ -16,7 +21,7 @@ export default defineConfig({
     proxy: {
       // 开发环境下将 /api 请求转发到后端服务
       '/api': {
-        target: 'http://localhost:8080',
+        target: apiProxyTarget,
         changeOrigin: true
       }
     }
@@ -27,9 +32,10 @@ export default defineConfig({
     proxy: {
       // 预览环境下同样将 /api 请求转发到后端服务
       '/api': {
-        target: 'http://localhost:8080',
+        target: apiProxyTarget,
         changeOrigin: true
       }
     }
   },
+  }
 })

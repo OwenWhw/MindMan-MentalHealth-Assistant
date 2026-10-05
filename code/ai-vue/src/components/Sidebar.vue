@@ -20,8 +20,8 @@ const menuList = [
     <div class="brand">
       <div class="brand-text" v-show="!store.sidebarCollapsed">
         <div class="brand-title">MindMan</div>
-        <div class="brand-sub">心理健康助手</div>
-        <div class="brand-badge">管理端 · ADMIN</div>
+        <div class="brand-sub">一处让心安放的地方</div>
+        <div class="brand-badge">管理工作台 · ADMIN</div>
       </div>
     </div>
 
@@ -31,9 +31,9 @@ const menuList = [
       :collapse="store.sidebarCollapsed"
       :collapse-transition="false"
       class="sidebar-menu"
-      background-color="#ffffff"
-      text-color="#5b6472"
-      active-text-color="#2459b3"
+      background-color="#f3f6ef"
+      text-color="#607665"
+      active-text-color="#315b3d"
     >
       <el-menu-item v-for="item in menuList" :key="item.path" :index="item.path">
         <el-icon><component :is="item.icon" /></el-icon>
@@ -42,7 +42,7 @@ const menuList = [
     </el-menu>
 
     <div class="sidebar-footer" v-show="!store.sidebarCollapsed">
-      <span>v0.1.0</span>
+      <span>MindMan · 管理工作台</span>
     </div>
   </aside>
 </template>
@@ -52,11 +52,11 @@ const menuList = [
   width: 240px;
   min-width: 240px;
   height: 100vh;
-  background-color: #ffffff;
-  color: #3f4a5a;
+  background-color: #f3f6ef;
+  color: #48634e;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid #eceef1;
+  border-right: 1px solid #dfe8dc;
   overflow: hidden;
   transition: width 0.25s ease, min-width 0.25s ease;
 }
@@ -72,7 +72,7 @@ const menuList = [
   display: flex;
   align-items: center;
   gap: 12px;
-  border-bottom: 1px solid #f0f1f4;
+  border-bottom: 1px solid #dfe8dc;
 }
 
 .sidebar.collapsed .brand {
@@ -83,14 +83,14 @@ const menuList = [
 .brand-title {
   font-size: 17px;
   font-weight: 600;
-  color: #1f2937;
+  color: #2d4935;
   letter-spacing: 2px;
   line-height: 1.2;
 }
 
 .brand-sub {
   font-size: 10px;
-  color: #98a1ae;
+  color: #8ca18e;
   letter-spacing: 1.5px;
   text-transform: uppercase;
   line-height: 1.2;
@@ -101,7 +101,7 @@ const menuList = [
   margin-top: 6px;
   padding: 2px 10px;
   border-radius: 999px;
-  background: #111111;
+  background: #426b4b;
   color: #ffffff;
   font-size: 10px;
   letter-spacing: 2px;
@@ -124,13 +124,13 @@ const menuList = [
 }
 
 .sidebar-menu :deep(.el-menu-item:hover) {
-  background-color: #f3f5f7 !important;
-  color: #1f2937 !important;
+  background-color: #e8f0e5 !important;
+  color: #315a3b !important;
 }
 
 .sidebar-menu :deep(.el-menu-item.is-active) {
-  background-color: rgba(47, 111, 219, 0.1) !important;
-  color: #2459b3 !important;
+  background-color: #dfead9 !important;
+  color: #315b3d !important;
   font-weight: 600;
 }
 

@@ -14,7 +14,7 @@ const statCards = computed(() => {
       title: '总用户数',
       icon: 'User',
       bg: 'rgba(47, 111, 219, 0.1)',
-      color: '#2f6fdb',
+      color: '#52775a',
       value: d.userTotal ?? '-',
       subs: [
         { label: '活跃用户', value: d.activeUsers ?? '-' },
@@ -25,7 +25,7 @@ const statCards = computed(() => {
       title: '情绪日志',
       icon: 'Notebook',
       bg: 'rgba(47, 111, 219, 0.1)',
-      color: '#2f6fdb',
+      color: '#52775a',
       value: d.diaryTotal ?? '-',
       subs: [{ label: '今日新增', value: d.diaryToday ?? '-' }]
     },
@@ -33,7 +33,7 @@ const statCards = computed(() => {
       title: '咨询会话',
       icon: 'ChatDotRound',
       bg: 'rgba(47, 111, 219, 0.1)',
-      color: '#2f6fdb',
+      color: '#52775a',
       value: d.sessionTotal ?? '-',
       subs: [{ label: '今日新增', value: d.sessionToday ?? '-' }]
     },
@@ -41,7 +41,7 @@ const statCards = computed(() => {
       title: '情绪健康指数',
       icon: 'DataLine',
       bg: 'rgba(47, 111, 219, 0.1)',
-      color: '#2f6fdb',
+      color: '#52775a',
       value: d.emotionHealth != null ? `${d.emotionHealth}/10` : '-',
       subs: [{ label: '平均时长', value: d.avgDuration != null ? `${d.avgDuration} 分钟` : '-' }]
     }
@@ -49,10 +49,10 @@ const statCards = computed(() => {
 })
 
 const C = {
-  blue: '#5a84d6',
-  sage: '#8da898',
-  mauve: '#a59ac2',
-  sand: '#c5aa82',
+  blue: '#547d60',
+  sage: '#9ab394',
+  mauve: '#b2a084',
+  sand: '#d1a88a',
   grid: 'rgba(17, 24, 39, 0.05)',
   axis: '#cdd3dc',
   label: '#9ca3af'

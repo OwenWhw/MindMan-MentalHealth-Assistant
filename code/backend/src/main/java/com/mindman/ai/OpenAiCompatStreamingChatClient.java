@@ -131,14 +131,15 @@ public class OpenAiCompatStreamingChatClient implements StreamingChatClient {
     }
 
     /** 从 SSE data 行解析 delta.content，过滤空段与 &lt;think&gt; 推理段 */
-    private Mono<String> parseDeltaFromSseData(String sseData) {
+    Mono<String> parseDeltaFromSseData(String sseData) {
         try {
             JsonNode root = objectMapper.readTree(sseData);
             JsonNode choices = root.path("choices");
             if (choices.isArray() && choices.size() > 0) {
                 String content = choices.get(0).path("delta").path("content").asText("");
                 if (!content.isEmpty()) {
-                    return Mono.just(stripThink(content));
+                    String visible = stripThink(content);
+                    return visible.isEmpty() ? Mono.empty() : Mono.just(visible);
                 }
             }
         } catch (Exception ignored) {
@@ -152,7 +153,7 @@ public class OpenAiCompatStreamingChatClient implements StreamingChatClient {
             JsonNode root = objectMapper.readTree(rawJson);
             JsonNode choices = root.path("choices");
             if (choices.isArray() && choices.size() > 0) {
-                return stripThink(choices.get(0).path("message").path("content").asText(""));
+                return stripThink(choices.get(0).path("message").path("content").asText("")).strip();
             }
         } catch (Exception e) {
             log.warn("[{}] 解析响应 JSON 失败: {}", name, e.getMessage());
@@ -163,6 +164,8 @@ public class OpenAiCompatStreamingChatClient implements StreamingChatClient {
     /** 去掉推理模型输出的 &lt;think&gt;...&lt;/think&gt; 段 */
     private String stripThink(String content) {
         if (content == null) return "";
-        return content.replaceAll("(?s)<think>.*?</think>", "").trim();
+        // This runs once per SSE delta. Trimming here drops whitespace-only
+        // chunks and joins adjacent English words; trim only after a full reply.
+        return content.replaceAll("(?s)<think>.*?</think>", "");
     }
 }

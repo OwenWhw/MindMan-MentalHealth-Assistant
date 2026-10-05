@@ -5,6 +5,7 @@ import com.mindman.common.page.PageVO;
 import com.mindman.dto.*;
 import com.mindman.service.ArticleCategoryService;
 import com.mindman.service.ArticleService;
+import com.mindman.util.LoginUser;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -45,6 +46,7 @@ public class KnowledgeController {
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) Integer status
     ) {
+        LoginUser.requireAdmin();
         return R.page(categoryService.page(page.intValue(), pageSize.intValue(), keyword, status));
     }
 
@@ -57,12 +59,14 @@ public class KnowledgeController {
     @Operation(summary = "新增分类")
     @PostMapping("/category")
     public R<Long> createCategory(@Valid @RequestBody ArticleCategorySaveDTO dto) {
+        LoginUser.requireAdmin();
         return R.created(categoryService.save(dto));
     }
 
     @Operation(summary = "更新分类")
     @PutMapping("/category")
     public R<Void> updateCategory(@Valid @RequestBody ArticleCategorySaveDTO dto) {
+        LoginUser.requireAdmin();
         if (dto.getCategoryId() == null) {
             return R.badRequest("分类ID不能为空");
         }
@@ -73,6 +77,7 @@ public class KnowledgeController {
     @Operation(summary = "删除分类")
     @DeleteMapping("/category/{id}")
     public R<Void> deleteCategory(@PathVariable Long id) {
+        LoginUser.requireAdmin();
         categoryService.delete(id);
         return R.ok();
     }
@@ -94,6 +99,7 @@ public class KnowledgeController {
     @Operation(summary = "新增文章")
     @PostMapping("/article")
     public R<Long> createArticle(@Valid @RequestBody ArticleSaveDTO dto) {
+        LoginUser.requireAdmin();
         if (dto.getArticleId() != null) {
             return R.badRequest("新增请求不应携带 articleId");
         }
@@ -103,6 +109,7 @@ public class KnowledgeController {
     @Operation(summary = "更新文章")
     @PutMapping("/article")
     public R<Void> updateArticle(@Valid @RequestBody ArticleSaveDTO dto) {
+        LoginUser.requireAdmin();
         if (dto.getArticleId() == null) {
             return R.badRequest("更新请求必须携带 articleId");
         }
@@ -113,6 +120,7 @@ public class KnowledgeController {
     @Operation(summary = "上下线/草稿切换")
     @PutMapping("/article/status")
     public R<Void> updateArticleStatus(@RequestBody Map<String, Object> body) {
+        LoginUser.requireAdmin();
         Object articleId = body.get("articleId");
         Object status = body.get("status");
         if (articleId == null || status == null) {
@@ -129,6 +137,7 @@ public class KnowledgeController {
     @Operation(summary = "删除文章")
     @DeleteMapping("/article/{id}")
     public R<Void> deleteArticle(@PathVariable Long id) {
+        LoginUser.requireAdmin();
         articleService.delete(id);
         return R.ok();
     }

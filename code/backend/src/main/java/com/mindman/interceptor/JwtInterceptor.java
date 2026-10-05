@@ -128,7 +128,13 @@ public class JwtInterceptor implements HandlerInterceptor {
      * <p>与 GlobalExceptionHandler 的返回格式完全一致，前端可统一解析。</p>
      */
     private void writeError(HttpServletResponse response, R<?> result) throws IOException {
-        response.setStatus(result.getCode());
+        // 业务码可能是 40101 / 40301，不能直接作为 HTTP 状态码发送。
+        int httpStatus = switch (result.getCode()) {
+            case 40101 -> HttpServletResponse.SC_UNAUTHORIZED;
+            case 40301 -> HttpServletResponse.SC_FORBIDDEN;
+            default -> result.getCode();
+        };
+        response.setStatus(httpStatus);
         response.setContentType("application/json;charset=UTF-8");
         response.setCharacterEncoding("UTF-8");
         objectMapper.writeValue(response.getOutputStream(), result);

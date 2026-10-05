@@ -21,6 +21,7 @@ public class EmotionGardenVO {
     private Integer emotionScore;
     private Integer sleepScore;
     private Integer stressScore;
+    private String ratingSource;
     private String trigger;    // 情绪触发因素
     private String date;       // yyyy-MM-dd（对应 recordDate）
     private String createdAt;  // yyyy-MM-dd HH:mm:ss
@@ -37,6 +38,7 @@ public class EmotionGardenVO {
         vo.setEmotionScore(r.getEmotionScore());
         vo.setSleepScore(r.getSleepScore());
         vo.setStressScore(r.getStressScore());
+        vo.setRatingSource(r.getRatingSource());
         vo.setTrigger(r.getTrigger());
         if (r.getRecordDate() != null) vo.setDate(r.getRecordDate().format(DATE_FMT));
         if (r.getCreatedAt() != null) vo.setCreatedAt(r.getCreatedAt().format(DT_FMT));
@@ -55,6 +57,8 @@ public class EmotionGardenVO {
     public void setSleepScore(Integer sleepScore) { this.sleepScore = sleepScore; }
     public Integer getStressScore() { return stressScore; }
     public void setStressScore(Integer stressScore) { this.stressScore = stressScore; }
+    public String getRatingSource() { return ratingSource; }
+    public void setRatingSource(String ratingSource) { this.ratingSource = ratingSource; }
     public String getTrigger() { return trigger; }
     public void setTrigger(String trigger) { this.trigger = trigger; }
     public String getDate() { return date; }

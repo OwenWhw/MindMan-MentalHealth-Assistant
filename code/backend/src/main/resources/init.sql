@@ -33,7 +33,8 @@ CREATE TABLE IF NOT EXISTS `article_category` (
     `status`      TINYINT      DEFAULT 1 COMMENT '1启用 0停用',
     `created_at`  DATETIME     DEFAULT CURRENT_TIMESTAMP,
     `updated_at`  DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (`id`)
+    PRIMARY KEY (`id`),
+    KEY `idx_category_status_sort` (`status`, `sort_order`, `id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文章分类';
 
 -- 文章表
@@ -52,10 +53,48 @@ CREATE TABLE IF NOT EXISTS `article` (
     `created_at`   DATETIME     DEFAULT CURRENT_TIMESTAMP,
     `updated_at`   DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     `deleted`      TINYINT      DEFAULT 0,
+    `source_type`  VARCHAR(20)  NOT NULL DEFAULT 'local' COMMENT '来源：local/crawled',
+    `source_url`   VARCHAR(1000) DEFAULT NULL COMMENT '来源链接或生成标识',
+    `source_name`  VARCHAR(128) DEFAULT NULL COMMENT '来源名称',
+    `emotion_tags` VARCHAR(512) DEFAULT NULL COMMENT '情绪标签，逗号分隔',
     PRIMARY KEY (`id`),
-    KEY `idx_category` (`category_id`),
-    KEY `idx_status` (`status`)
+    KEY `idx_article_category_status_publish` (`category_id`, `status`, `deleted`, `publish_time`, `id`),
+    KEY `idx_article_status_publish` (`status`, `deleted`, `publish_time`, `id`),
+    KEY `idx_article_title` (`title`),
+    KEY `idx_article_source_url` (`source_url`(512))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文章表';
+
+-- RSS source synchronization history and conditional-request state
+CREATE TABLE IF NOT EXISTS `article_crawl_run` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `trigger_type` VARCHAR(16) NOT NULL COMMENT 'manual/scheduled',
+    `status` VARCHAR(16) NOT NULL COMMENT 'RUNNING/SUCCESS/PARTIAL/FAILED/SKIPPED/DISABLED',
+    `started_at` DATETIME NOT NULL,
+    `finished_at` DATETIME DEFAULT NULL,
+    `source_count` INT NOT NULL DEFAULT 0,
+    `fetched_count` INT NOT NULL DEFAULT 0,
+    `imported_count` INT NOT NULL DEFAULT 0,
+    `updated_count` INT NOT NULL DEFAULT 0,
+    `duplicate_count` INT NOT NULL DEFAULT 0,
+    `not_modified_count` INT NOT NULL DEFAULT 0,
+    `skipped_count` INT NOT NULL DEFAULT 0,
+    `filtered_count` INT NOT NULL DEFAULT 0,
+    `failed_count` INT NOT NULL DEFAULT 0,
+    `error_summary` VARCHAR(1000) DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    KEY `idx_article_crawl_run_started` (`started_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文章 RSS 同步记录';
+
+CREATE TABLE IF NOT EXISTS `article_crawl_feed_state` (
+    `feed_url` VARCHAR(512) NOT NULL,
+    `feed_name` VARCHAR(128) NOT NULL,
+    `etag` VARCHAR(512) DEFAULT NULL,
+    `last_modified` VARCHAR(128) DEFAULT NULL,
+    `last_checked_at` DATETIME DEFAULT NULL,
+    `last_successful_at` DATETIME DEFAULT NULL,
+    `last_item_count` INT NOT NULL DEFAULT 0,
+    PRIMARY KEY (`feed_url`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='RSS 来源同步状态';
 
 -- 情绪记录表
 CREATE TABLE IF NOT EXISTS `emotion_record` (
@@ -67,6 +106,7 @@ CREATE TABLE IF NOT EXISTS `emotion_record` (
     `note`          VARCHAR(255) DEFAULT NULL COMMENT '备注/日记内容',
     `sleep_score`   INT         DEFAULT 3 COMMENT '睡眠质量1-5',
     `stress_score`  INT         DEFAULT 3 COMMENT '压力水平1-5',
+    `rating_source` VARCHAR(24) DEFAULT NULL COMMENT '评分来源；self_reported=用户自评，NULL=历史来源未记录',
     `trigger`       VARCHAR(64) DEFAULT NULL COMMENT '情绪触发因素',
     `record_date`   DATE        NOT NULL COMMENT '记录日期',
     `created_at`    DATETIME    DEFAULT CURRENT_TIMESTAMP,
@@ -79,11 +119,13 @@ CREATE TABLE IF NOT EXISTS `chat_session` (
     `id`         BIGINT       NOT NULL AUTO_INCREMENT,
     `user_id`    BIGINT       NOT NULL,
     `title`      VARCHAR(255) DEFAULT '新的咨询',
-    `status`     TINYINT      DEFAULT 1 COMMENT '1进行中 2已结束',
+    `status`     TINYINT      DEFAULT 1 COMMENT '1进行中 2已归档',
+    `summary`    MEDIUMTEXT   DEFAULT NULL COMMENT '最近一次AI会话总结，新消息到达时失效',
+    `summary_updated_at` DATETIME DEFAULT NULL COMMENT '总结生成时间',
     `created_at` DATETIME     DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
-    KEY `idx_user` (`user_id`)
+    KEY `idx_session_user_updated` (`user_id`, `updated_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='聊天会话';
 
 -- 消息表
@@ -94,9 +136,11 @@ CREATE TABLE IF NOT EXISTS `chat_message` (
     `role`       VARCHAR(16)  NOT NULL COMMENT 'user/assistant',
     `content`    TEXT         NOT NULL,
     `emotion`    VARCHAR(128) DEFAULT NULL COMMENT 'AI情绪分析结果',
+    `delivery_status` VARCHAR(16) NOT NULL DEFAULT 'complete' COMMENT 'streaming/complete/interrupted/failed',
     `created_at` DATETIME     DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
-    KEY `idx_session` (`session_id`)
+    KEY `idx_message_session_created` (`session_id`, `created_at`, `id`),
+    KEY `idx_message_user_role_created` (`user_id`, `role`, `created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='聊天消息';
 
 -- 初始管理员
@@ -121,8 +165,8 @@ CREATE TABLE IF NOT EXISTS `prompt_template` (
 
 -- 提示词模板种子数据
 INSERT INTO `prompt_template` (`scene`, `name`, `template`, `variables`, `remark`, `enabled`) SELECT
-'chat_system', 'AI咨询-默认人设（内置同款）',
-'你是 MindMan，一位温暖、专业的心理健康助手。你的特点：\n\n【核心原则】\n- 以共情和倾听为主，不急于给建议\n- 使用温和、鼓励的语言，避免说教\n- 关注用户的情绪状态，而非仅关注事件本身\n- 适时使用开放式问题引导用户深入表达\n\n【回复风格】\n- 语言简洁自然，像朋友聊天一样\n- 每次回复控制在 200 字以内\n- 适当使用 emoji 增加亲和力 🌱\n- 不做医学诊断，必要时建议寻求专业帮助\n\n【情绪识别】\n- 能敏锐捕捉用户文字中的情绪信号\n- 回复中体现对用户情绪的理解和接纳\n- 不评判任何情绪，所有情绪都是合理的\n\n请始终用简体中文回复。',
+'chat_system', 'AI咨询-自然具体版（默认）',
+'你是 MindMan 的心理健康倾听助手。先听清用户这轮具体在说什么，再用自然、克制的中文回应。\n允许用户只说事实、只问问题，或暂时不想找解决办法；不要求每次对话都走“共情—追问—建议”的固定流程。\n用户没有明确要建议时先倾听，不主动塞解决办法；只有确有具体建议可供选择时，才询问是否想听。用户明确要办法时，给少量具体、能开始尝试的做法；用户要文章或资料时，只介绍可核验的真实内容。\n不诊断，不把短暂情绪病理化；不把相关性说成因果，也不假装知道用户没说过的经历。\n通常简短回答；复杂问题按需要说明步骤和限制。不要默认用表情符号或口号式鼓励。\n请始终用简体中文回复。',
 '[]', '与 application.yml 内置 system-prompt 一致，可在后台修改后立即生效', 1
 FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM `prompt_template` WHERE `scene`='chat_system');
 

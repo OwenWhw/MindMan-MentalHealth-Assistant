@@ -1,357 +1,383 @@
 package com.mindman.service.impl;
 
-import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.mindman.config.CrawlerProperties;
+import com.mindman.crawler.FeedItem;
+import com.mindman.crawler.RssFeedParser;
+import com.mindman.dto.CrawlRunResult;
+import com.mindman.dto.CrawlerFeedInfo;
+import com.mindman.dto.CrawlerStatusVO;
 import com.mindman.entity.Article;
+import com.mindman.entity.CrawlRunLog;
+import com.mindman.entity.CrawlFeedState;
 import com.mindman.mapper.ArticleMapper;
+import com.mindman.mapper.CrawlFeedStateMapper;
+import com.mindman.mapper.CrawlRunLogMapper;
 import com.mindman.service.RealtimeCrawlerService;
-import jakarta.annotation.Resource;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
+import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
+import java.net.URI;
 import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.*;
-import java.util.concurrent.ThreadLocalRandom;
-import java.util.stream.Collectors;
+import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.concurrent.atomic.AtomicBoolean;
 
-/**
- * 实时心理文章爬虫（混合策略）。
- *
- * <h3>两种来源</h3>
- * <ol>
- *   <li><strong>Jina Reader 抓取</strong>：调 {@code https://r.jina.ai/URL} 把页面转 Markdown；
- *       在境内网络可能不通，做兜底</li>
- *   <li><strong>AI 生成兜底</strong>：调百炼 Qwen 针对心理主题生成原创短文。
- *       抓取成功则用抓取的，全部失败则改用 AI 生成</li>
- * </ol>
- *
- * <p>入库统一标记为 {@code source_type='crawled'}、
- * {@code source_url} 记录来源（爬到的是真链接，AI 的是标识）。</p>
- */
+/** Syncs source-provided metadata from APA RSS feeds; it never fabricates or republishes full articles. */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class RealtimeCrawlerImpl implements RealtimeCrawlerService {
 
     private static final long CATEGORY_LIVE = 7L;
-
-    /** 心理主题关键词（命中至少 2 个过滤） */
-    private static final List<String> TOPIC_KEYWORDS = List.of(
-            "焦虑", "抑郁", "失眠", "情绪", "压力", "紧张",
-            "亲密", "关系", "原生家庭", "人际", "友情", "亲情", "恋爱", "孤独",
-            "自我", "成长", "自卑", "自卑感", "心理", "疗愈", "抑郁情绪",
-            "焦虑情绪", "情感", "情绪管理", "亲密关系", "原生家庭疗愈",
-            "愤怒", "委屈", "烦躁"
+    private static final String SOURCE_TYPE = "crawled";
+    private static final int DESCRIPTION_LIMIT = 1800;
+    private static final List<Feed> FEEDS = List.of(
+            new Feed("APA 心理学新闻", "https://www.apa.org/news/press/releases/press-release-rss.xml", false),
+            new Feed("APA PsycPORT 心理资讯", "https://www.apa.org/news/psycport/psycport-rss.xml", true)
     );
-
-    /** AI 生成主题池。每天从里面随机选 3-5 个。 */
-    private static final List<String> GENERATION_TOPICS = List.of(
-            "焦虑情绪的 5 个放松小技巧",
-            "当代年轻人失眠自救指南",
-            "如何在亲密关系中保持健康的边界",
-            "原生家庭带来的影响,如何自我疗愈",
-            "识别并缓解工作场所的倦怠",
-            "高敏感人群的心理自处之道",
-            "社交孤独感怎么破:你的独处与他处",
-            "为什么我们总是想讨好别人",
-            "情绪稳定的练习:不被他人的情绪带走",
-            "如何与抑郁情绪共处:倾听它,而非对抗它",
-            "亲密关系中的非暴力沟通",
-            "为什么总觉得自己不够好:从完美主义到自我接纳",
-            "情绪日记:每天 5 分钟学会安抚自己",
-            "当愤怒来袭:3 个不会被情绪控制的小练习"
-    );
-
-    /** 外部来源种子池（外网可达时启用） */
-    private static final List<Seed> SEEDS = List.of(
-            new Seed("KnowYourself",       "https://www.xinli001.com/"),
-            new Seed("知乎心理学话题", "https://www.zhihu.com/topic/19551432/top_answers"),
-            new Seed("简单心理",         "https://www.jiandanxinli.com/"),
-            new Seed("豆瓣心理阅读",     "https://book.douban.com/chart?cat=7")
+    private static final List<String> RELEVANCE_TERMS = List.of(
+            "psycholog", "mental health", "anxiety", "stress", "emotion", "mood", "relationship",
+            "loneliness", "sleep", "well-being", "wellbeing", "depression", "grief", "trauma",
+            "resilience", "burnout", "coping", "therapy", "brain", "memory", "addiction", "autism",
+            "suicide", "distress", "fear", "behavior", "behaviour", "social support", "workplace",
+            "children", "adolescent", "心理", "情绪", "焦虑", "压力", "睡眠", "关系", "抑郁"
     );
 
     private final ArticleMapper articleMapper;
+    private final CrawlRunLogMapper runLogMapper;
+    private final CrawlFeedStateMapper feedStateMapper;
     private final WebClient.Builder webClientBuilder;
-
-    /** 注入 AiConfig 创建的百炼 webclient，做 AI 生成兜底 */
-    @Qualifier("siliconFlowWebClient")
-    @Resource(name = "siliconFlowWebClient")
-    private WebClient aiWebClient;
+    private final CrawlerProperties properties;
+    private final RssFeedParser parser = new RssFeedParser();
+    private final AtomicBoolean running = new AtomicBoolean(false);
 
     @Override
     public int crawlOnce(int limit) {
-        int target = Math.min(Math.max(limit, 1), 10);
-        int saved = 0;
+        return crawlDetailed(limit, "manual").importedCount();
+    }
 
-        // Phase 1：尝试 Jina Reader 抓取（外网通常不通，会全部跳过）
-        List<Seed> shuffled = new ArrayList<>(SEEDS);
-        Collections.shuffle(shuffled, ThreadLocalRandom.current());
+    @Override
+    public CrawlRunResult crawlDetailed(int limit, String triggerType) {
+        if (!properties.isEnabled()) return result("DISABLED", triggerType, null, null, 0, 0, 0, 0, 0, 0, 0, "自动同步已关闭", List.of());
+        if (!running.compareAndSet(false, true)) return result("SKIPPED", triggerType, null, null, 0, 0, 0, 0, 0, 0, 0, "已有同步任务正在运行", List.of());
 
-        for (Seed seed : shuffled) {
-            if (saved >= target) break;
-            try {
-                String md = fetchMarkdown(seed.url);
-                if (md == null || md.isBlank()) continue;
-                ParsedDoc doc = parseMarkdown(md, seed.url, seed.sourceName);
-                if (doc == null) continue;
-                if (!passTopicFilter(doc)) continue;
-                if (isDuplicate(doc.title, seed.url)) continue;
-
-                if (saveArticle(doc, seed.sourceName, seed.url, ThreadLocalRandom.current().nextInt(0, 60))) {
-                    saved++;
-                }
-            } catch (Exception e) {
-                log.warn("CrawlFail (jina) url={} err={}", seed.url, e.getMessage());
-            }
-        }
-
-        // Phase 2：剩余额度用 AI 生成
-        if (saved < target) {
-            log.info("CrawlPhase AI gen start. need={}", target - saved);
-            List<String> topics = new ArrayList<>(GENERATION_TOPICS);
-            Collections.shuffle(topics, ThreadLocalRandom.current());
-            for (String topic : topics) {
-                if (saved >= target) break;
+        LocalDateTime startedAt = now();
+        CrawlRunLog run = new CrawlRunLog();
+        run.setTriggerType(normalizeTrigger(triggerType));
+        run.setStatus("RUNNING");
+        run.setStartedAt(startedAt);
+        run.setSourceCount(FEEDS.size());
+        run.setFetchedCount(0);
+        run.setImportedCount(0);
+        run.setUpdatedCount(0);
+        run.setDuplicateCount(0);
+        run.setNotModifiedCount(0);
+        run.setSkippedCount(0);
+        run.setFilteredCount(0);
+        run.setFailedCount(0);
+        Counters counters = new Counters();
+        List<String> errors = new ArrayList<>();
+        int itemLimit = Math.max(1, Math.min(limit, Math.max(1, properties.getDailyLimit())));
+        try {
+            runLogMapper.insert(run);
+            for (Feed feed : FEEDS) {
+                if (counters.imported >= itemLimit) break;
                 try {
-                    ParsedDoc doc = aiGenerateArticle(topic);
-                    if (doc == null) continue;
-                    if (isDuplicate(doc.title, "ai:" + topic)) continue;
-
-                    if (saveArticle(doc, "MindMan AI 实验室", "ai://generated/" + System.currentTimeMillis(),
-                            ThreadLocalRandom.current().nextInt(0, 60))) {
-                        saved++;
-                    }
+                    syncFeed(feed, itemLimit - counters.imported, counters);
                 } catch (Exception e) {
-                    log.warn("CrawlFail (ai) topic={} err={}", topic, e.getMessage());
+                    counters.failed++;
+                    String message = feed.name + "：" + safeMessage(e);
+                    errors.add(message);
+                    log.warn("RSS feed sync failed: {}", message);
                 }
+            }
+        } catch (Exception e) {
+            counters.failed++;
+            errors.add("同步任务：" + safeMessage(e));
+            log.error("RSS sync run failed before completion: {}", safeMessage(e));
+        } finally {
+            LocalDateTime finishedAt = now();
+            String status = counters.failed == 0 ? "SUCCESS"
+                    : counters.imported + counters.updated + counters.duplicate + counters.notModified > 0 ? "PARTIAL" : "FAILED";
+            run.setStatus(status);
+            run.setFinishedAt(finishedAt);
+            run.setFetchedCount(counters.fetched);
+            run.setImportedCount(counters.imported);
+            run.setUpdatedCount(counters.updated);
+            run.setDuplicateCount(counters.duplicate);
+            run.setNotModifiedCount(counters.notModified);
+            run.setSkippedCount(counters.skipped);
+            run.setFilteredCount(counters.filtered);
+            run.setFailedCount(counters.failed);
+            run.setErrorSummary(errors.isEmpty() ? null : String.join("；", errors).substring(0, Math.min(900, String.join("；", errors).length())));
+            try {
+                if (run.getId() != null) runLogMapper.updateById(run);
+            } catch (Exception e) {
+                log.error("Could not persist RSS sync run result: {}", safeMessage(e));
+            } finally {
+                running.set(false);
             }
         }
 
-        log.info("crawlOnce done saved={} target={}", saved, target);
-        return saved;
+        List<String> errorCopy = List.copyOf(errors);
+        return new CrawlRunResult(run.getId(), run.getTriggerType(), run.getStatus(), run.getStartedAt(), run.getFinishedAt(),
+                run.getSourceCount(), run.getFetchedCount(), run.getImportedCount(), run.getUpdatedCount(), run.getDuplicateCount(),
+                run.getNotModifiedCount(), run.getSkippedCount(), run.getFilteredCount(), run.getFailedCount(), run.getErrorSummary(), errorCopy);
+    }
+
+    private void syncFeed(Feed feed, int remainingLimit, Counters counters) {
+        CrawlFeedState state = feedStateMapper.selectById(feed.url);
+        LocalDateTime checkedAt = state == null ? null : state.getLastCheckedAt();
+        long minHours = Math.max(0, properties.getMinCheckIntervalHours());
+        if (checkedAt != null && checkedAt.isAfter(now().minusHours(minHours))) {
+            counters.skipped++;
+            return;
+        }
+
+        FeedResponse response = fetch(feed.url, state);
+        if (response == null) throw new IllegalStateException("RSS 来源没有返回响应");
+        LocalDateTime checkTime = now();
+        if (response.statusCode == 304) {
+            counters.notModified++;
+            saveFeedState(feed, state, response, checkTime, state == null ? 0 : state.getLastItemCount());
+            return;
+        }
+
+        List<FeedItem> items = parser.parse(response.body, ZoneId.of(properties.getZone()));
+        int accepted = 0;
+        for (FeedItem item : items) {
+            int feedLimit = Math.max(1, properties.getPerFeedLimit());
+            if (counters.imported >= properties.getDailyLimit() || accepted >= Math.min(remainingLimit, feedLimit)) break;
+            counters.fetched++;
+            if (!feed.includeAll && !isRelevant(item)) {
+                counters.filtered++;
+                continue;
+            }
+            LocalDateTime publishedAt = item.publishedAt() == null ? checkTime : item.publishedAt();
+            if (publishedAt.isBefore(checkTime.minusDays(Math.max(1, properties.getMaxAgeDays())))) {
+                counters.filtered++;
+                continue;
+            }
+            String url = canonicalize(item.link());
+            Article existing = articleMapper.selectOne(new LambdaQueryWrapper<Article>()
+                    .eq(Article::getSourceType, SOURCE_TYPE)
+                    .eq(Article::getSourceUrl, url)
+                    .last("LIMIT 1"));
+            if (existing != null) {
+                if (updateIfChanged(existing, item, feed, item.publishedAt())) counters.updated++;
+                else counters.duplicate++;
+                accepted++;
+                continue;
+            }
+            Article article = toArticle(item, feed, url, publishedAt);
+            articleMapper.insert(article);
+            counters.imported++;
+            accepted++;
+        }
+        saveFeedState(feed, state, response, checkTime, items.size());
+    }
+
+    private FeedResponse fetch(String url, CrawlFeedState state) {
+        WebClient client = webClientBuilder.clone()
+                .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(2 * 1024 * 1024))
+                .build();
+        return client.get().uri(url)
+                .header(HttpHeaders.USER_AGENT, "MindManArticleIndex/1.0 (+https://www.apa.org/rss)")
+                .headers(headers -> {
+                    if (state != null && StringUtils.hasText(state.getEtag())) headers.setIfNoneMatch(state.getEtag());
+                    if (state != null && StringUtils.hasText(state.getLastModified())) headers.set(HttpHeaders.IF_MODIFIED_SINCE, state.getLastModified());
+                })
+                .exchangeToMono(response -> toResponse(response))
+                .timeout(Duration.ofSeconds(Math.max(3, properties.getRequestTimeoutSeconds())))
+                .block();
+    }
+
+    private Mono<FeedResponse> toResponse(ClientResponse response) {
+        int status = response.statusCode().value();
+        String etag = response.headers().asHttpHeaders().getETag();
+        String modified = response.headers().asHttpHeaders().getFirst(HttpHeaders.LAST_MODIFIED);
+        if (status == 304) return Mono.just(new FeedResponse(status, "", etag, modified));
+        if (!response.statusCode().is2xxSuccessful()) return response.createException().flatMap(Mono::error);
+        return response.bodyToMono(String.class).defaultIfEmpty("")
+                .map(body -> new FeedResponse(status, body, etag, modified));
+    }
+
+    private void saveFeedState(Feed feed, CrawlFeedState state, FeedResponse response, LocalDateTime checkedAt, int itemCount) {
+        CrawlFeedState saved = state == null ? new CrawlFeedState() : state;
+        saved.setFeedUrl(feed.url);
+        saved.setFeedName(feed.name);
+        saved.setEtag(StringUtils.hasText(response.etag) ? response.etag : saved.getEtag());
+        saved.setLastModified(StringUtils.hasText(response.lastModified) ? response.lastModified : saved.getLastModified());
+        saved.setLastCheckedAt(checkedAt);
+        saved.setLastSuccessfulAt(checkedAt);
+        saved.setLastItemCount(itemCount);
+        if (state == null) feedStateMapper.insert(saved);
+        else feedStateMapper.updateById(saved);
+    }
+
+    private boolean updateIfChanged(Article article, FeedItem item, Feed feed, LocalDateTime publishedAt) {
+        String summary = clip(item.description(), 500);
+        String content = clip(item.description(), DESCRIPTION_LIMIT);
+        String sourceName = sourceDisplayName(feed, item);
+        boolean changed = !equals(article.getTitle(), clip(item.title(), 255))
+                || !equals(article.getSummary(), summary)
+                || !equals(article.getContent(), content)
+                || !equals(article.getSourceName(), sourceName)
+                || !equals(article.getTags(), tagsJson(item.title() + " " + item.description()))
+                || (publishedAt != null && !publishedAt.equals(article.getPublishTime()));
+        if (!changed) return false;
+        article.setTitle(clip(item.title(), 255));
+        article.setSummary(summary);
+        article.setContent(content);
+        article.setTags(tagsJson(item.title() + " " + item.description()));
+        article.setEmotionTags(String.join(",", tags(item.title() + " " + item.description())));
+        article.setSourceName(sourceName);
+        if (publishedAt != null) article.setPublishTime(publishedAt);
+        // Keep moderation status and author edits intact while refreshing source metadata.
+        articleMapper.updateById(article);
+        return true;
+    }
+
+    private Article toArticle(FeedItem item, Feed feed, String url, LocalDateTime publishedAt) {
+        String text = item.title() + " " + item.description();
+        Article article = new Article();
+        article.setCategoryId(CATEGORY_LIVE);
+        article.setTitle(clip(item.title(), 255));
+        article.setSummary(clip(item.description(), 500));
+        article.setContent(clip(item.description(), DESCRIPTION_LIMIT));
+        article.setTags(tagsJson(text));
+        article.setEmotionTags(String.join(",", tags(text)));
+        article.setAuthor(StringUtils.hasText(item.author()) ? clip(item.author(), 64) : "American Psychological Association");
+        article.setReads(0L);
+        article.setStatus(1);
+        article.setPublishTime(publishedAt);
+        article.setSourceType(SOURCE_TYPE);
+        article.setSourceUrl(url);
+        article.setSourceName(sourceDisplayName(feed, item));
+        return article;
+    }
+
+    private static String sourceDisplayName(Feed feed, FeedItem item) {
+        if (!feed.includeAll) return "American Psychological Association (APA)";
+        try {
+            String host = URI.create(item.link()).getHost();
+            if (host != null && host.toLowerCase(Locale.ROOT).startsWith("www.")) host = host.substring(4);
+            if (StringUtils.hasText(host)) return host + " · APA PsycPORT";
+        } catch (RuntimeException ignored) {
+            // Keep the trustworthy feed identity if an item URL cannot be parsed here.
+        }
+        return feed.name;
+    }
+
+    private static boolean isRelevant(FeedItem item) {
+        String text = (item.title() + " " + item.description()).toLowerCase(Locale.ROOT);
+        return RELEVANCE_TERMS.stream().anyMatch(text::contains);
+    }
+
+    private static List<String> tags(String text) {
+        String value = text.toLowerCase(Locale.ROOT);
+        List<String> tags = new ArrayList<>();
+        if (contains(value, "anxiety", "焦虑", "worry", "fear")) tags.add("焦虑");
+        if (contains(value, "stress", "burnout", "workplace", "压力")) tags.add("压力");
+        if (contains(value, "sleep", "失眠")) tags.add("睡眠");
+        if (contains(value, "relationship", "loneliness", "social support", "关系", "孤独")) tags.add("人际关系");
+        if (contains(value, "emotion", "mood", "grief", "depression", "情绪", "抑郁")) tags.add("情绪");
+        if (contains(value, "mental health", "psycholog", "心理")) tags.add("心理健康");
+        return tags.stream().limit(4).toList();
+    }
+
+    private static String tagsJson(String text) {
+        List<String> values = tags(text);
+        return values.isEmpty() ? "[]" : "[\"" + String.join("\",\"", values) + "\"]";
+    }
+
+    private static boolean contains(String value, String... terms) {
+        for (String term : terms) if (value.contains(term)) return true;
+        return false;
+    }
+
+    private static String canonicalize(String raw) {
+        URI uri = URI.create(raw.trim()).normalize();
+        if (!"https".equalsIgnoreCase(uri.getScheme()) || !StringUtils.hasText(uri.getHost())) {
+            throw new IllegalArgumentException("来源链接不是有效的 HTTPS 地址");
+        }
+        String query = uri.getRawQuery();
+        if (query != null) {
+            query = java.util.Arrays.stream(query.split("&"))
+                    .filter(part -> {
+                        String key = part.split("=", 2)[0].toLowerCase(Locale.ROOT);
+                        return !key.startsWith("utm_") && !List.of("fbclid", "gclid", "mc_cid", "mc_eid").contains(key);
+                    }).collect(java.util.stream.Collectors.joining("&"));
+            if (query.isBlank()) query = null;
+        }
+        try {
+            return new URI("https", null, uri.getHost().toLowerCase(Locale.ROOT), uri.getPort(), uri.getPath(), query, null).toASCIIString();
+        } catch (Exception e) {
+            throw new IllegalArgumentException("无法规范化来源链接", e);
+        }
     }
 
     @Override
     public List<String> listSeeds() {
-        List<String> all = new ArrayList<>();
-        SEEDS.forEach(s -> all.add("[外部源] " + s.sourceName + ": " + s.url));
-        all.add("[AI 主题池] size=" + GENERATION_TOPICS.size());
-        return all;
+        return FEEDS.stream().map(feed -> "[APA RSS] " + feed.name + ": " + feed.url).toList();
     }
 
-    /** Jina Reader 取 Markdown */
-    private String fetchMarkdown(String url) {
-        try {
-            return webClientBuilder.build()
-                    .get()
-                    .uri("https://r.jina.ai/" + url)
-                    .header(HttpHeaders.USER_AGENT, "MindMan-Crawler/1.0")
-                    .header("X-Return-Format", "markdown")
-                    .retrieve()
-                    .bodyToMono(String.class)
-                    .timeout(Duration.ofSeconds(8))
-                    .onErrorResume(e -> Mono.empty())
-                    .block();
-        } catch (Exception e) {
-            return null;
-        }
+    @Override
+    public CrawlerStatusVO status() {
+        List<CrawlerFeedInfo> feeds = FEEDS.stream().map(feed -> {
+            CrawlFeedState state = feedStateMapper.selectById(feed.url);
+            return new CrawlerFeedInfo(feed.name, feed.url, properties.isEnabled(), state == null ? null : state.getLastSuccessfulAt());
+        }).toList();
+        List<CrawlRunLog> logs = runLogMapper.selectList(new LambdaQueryWrapper<CrawlRunLog>()
+                .orderByDesc(CrawlRunLog::getStartedAt).last("LIMIT 10"));
+        List<CrawlRunResult> recent = logs.stream().map(this::toResult).toList();
+        return new CrawlerStatusVO(properties.isEnabled(), running.get(), properties.getCron(), properties.getZone(), feeds,
+                recent.isEmpty() ? null : recent.get(0), recent);
     }
 
-    /** 解析 Markdown：第 1 行 title，正文前 1800 字 */
-    private ParsedDoc parseMarkdown(String md, String url, String sourceName) {
-        try {
-            String[] lines = md.split("\\R");
-            String title = "未命名";
-            int start = 0;
-            for (int i = 0; i < Math.min(lines.length, 30); i++) {
-                String l = lines[i].trim();
-                if (l.startsWith("# ")) {
-                    title = l.substring(2).trim();
-                    start = i + 1;
-                    break;
-                }
-            }
-            final String finalTitle = title;
-
-            StringBuilder body = new StringBuilder();
-            int charBudget = 1800;
-            for (int i = start; i < lines.length && body.length() < charBudget; i++) {
-                String line = lines[i].trim();
-                if (line.isEmpty() || line.startsWith("![")) continue;
-                body.append(line).append("\n");
-            }
-            String content = body.toString().trim();
-            if (content.length() < 50) return null;
-
-            final String finalContent = content;
-            String summary = content.length() > 120 ? content.substring(0, 120) + "..." : content;
-            String tags = TOPIC_KEYWORDS.stream()
-                    .filter(kw -> finalContent.contains(kw) || finalTitle.contains(kw))
-                    .limit(4)
-                    .collect(Collectors.joining(","));
-            return new ParsedDoc(finalTitle, summary, content, tags);
-        } catch (Exception e) {
-            return null;
-        }
+    private CrawlRunResult toResult(CrawlRunLog run) {
+        return new CrawlRunResult(run.getId(), run.getTriggerType(), run.getStatus(), run.getStartedAt(), run.getFinishedAt(),
+                value(run.getSourceCount()), value(run.getFetchedCount()), value(run.getImportedCount()), value(run.getUpdatedCount()),
+                value(run.getDuplicateCount()), value(run.getNotModifiedCount()), value(run.getSkippedCount()), value(run.getFilteredCount()),
+                value(run.getFailedCount()), run.getErrorSummary(), run.getErrorSummary() == null ? List.of() : List.of(run.getErrorSummary()));
     }
 
-    /** 关键词过滤 */
-    private boolean passTopicFilter(ParsedDoc d) {
-        int hits = 0;
-        for (String kw : TOPIC_KEYWORDS) {
-            if (d.title.contains(kw) || d.content.contains(kw)) hits++;
-            if (hits >= 2) return true;
-        }
-        return false;
+    private static CrawlRunResult result(String status, String trigger, LocalDateTime start, LocalDateTime end,
+                                         int sources, int fetched, int imported, int updated, int duplicate, int notModified,
+                                         int skipped, String message, List<String> errors) {
+        return new CrawlRunResult(null, normalizeTrigger(trigger), status, start, end, sources, fetched, imported, updated,
+                duplicate, notModified, skipped, 0, errors.size(), message, errors);
     }
 
-    /** AI 生成：调 Qwen 出原始内容 */
-    private ParsedDoc aiGenerateArticle(String topic) {
-        if (aiWebClient == null) {
-            log.warn("aiWebClient not available, skipping AI gen");
-            return null;
-        }
-        String sysPrompt = """
-                你是一位擅长科普与情感陪伴的心理学科普博主。给定主题，请按以下要求写一篇原创心理学科普文章：
-                1. 标题简洁、有趣，20 字以内
-                2. 内容 700–1100 字，分 3–5 个小节，每节有小标题
-                3. 面向都市年轻读者（20–40 岁）
-                4. 用 markdown 写，每节用 `###` 开头
-                5. 内容应包含至少 2 个具体可执行的小练习或自处方法
-                6. 不要承诺治愈、不要做诊断，只提供理解与思路
-                7. 不要在文中重复主题词做开篇
-                """;
-
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("model", "qwen-plus"); // 用最快最便宜的兜底模型
-        body.put("max_tokens", 1200);
-        body.put("temperature", 0.85);
-        body.put("messages", List.of(
-                Map.of("role", "system", "content", sysPrompt),
-                Map.of("role", "user",   "content", "主题：" + topic)
-        ));
-
-        try {
-            String response = aiWebClient.post()
-                    .uri("/chat/completions")
-                    .bodyValue(body)
-                    .retrieve()
-                    .bodyToMono(String.class)
-                    .timeout(Duration.ofSeconds(45))
-                    .onErrorResume(e -> {
-                        log.warn("AI gen fail topic={} err={}", topic, e.getMessage());
-                        return Mono.empty();
-                    })
-                    .block();
-            if (response == null || response.isBlank()) return null;
-
-            // 简单提取 content（JSON 解析：取首条 choices.message.content）
-            int idx = response.indexOf("\"content\":");
-            if (idx < 0) return null;
-            int open = response.indexOf("\"", idx + 11);
-            int close = response.indexOf("\"", open + 1);
-            // 大概率需要 escapes；这里只取一段保守长度
-            String content = decodeEscapesSafely(extractJsonString(response, idx));
-
-            if (content == null || content.length() < 80) return null;
-
-            // 抽 title
-            String title = topic;
-            for (String line : content.split("\\R")) {
-                String l = line.trim();
-                if (l.startsWith("# ") || l.startsWith("## ")) {
-                    title = l.replaceFirst("^#+\\s*", "").trim();
-                    break;
-                }
-            }
-            String summary = content.length() > 140 ? content.substring(0, 140) + "..." : content;
-            final String finalContent2 = content;
-            final String finalTitle2 = title;
-            String tags = TOPIC_KEYWORDS.stream()
-                    .filter(kw -> finalContent2.contains(kw) || finalTitle2.contains(kw))
-                    .limit(4)
-                    .collect(Collectors.joining(","));
-            return new ParsedDoc(title, summary, content, tags);
-        } catch (Exception e) {
-            log.warn("AI gen exception topic={} err={}", topic, e.getMessage());
-            return null;
-        }
+    private LocalDateTime now() { return LocalDateTime.now(ZoneId.of(properties.getZone())); }
+    private static String normalizeTrigger(String value) { return "scheduled".equalsIgnoreCase(value) ? "scheduled" : "manual"; }
+    private static int value(Integer value) { return value == null ? 0 : value; }
+    private static String clip(String text, int max) {
+        if (text == null) return "";
+        String clean = text.replaceAll("\\s+", " ").trim();
+        return clean.length() <= max ? clean : clean.substring(0, max - 1) + "…";
+    }
+    private static boolean equals(String a, String b) { return java.util.Objects.equals(a, b); }
+    private static String safeMessage(Exception e) {
+        String message = e.getMessage();
+        if (!StringUtils.hasText(message)) return e.getClass().getSimpleName();
+        String safe = message.replaceAll("[\\r\\n]+", " ");
+        return safe.substring(0, Math.min(220, safe.length()));
     }
 
-    /** 在 JSON 字符串里找完整 "..." 段（容忍含 `\"` 转义） */
-    private String extractJsonString(String raw, int startIdx) {
-        // 从 "content":"..." 的开引号往后找匹配的闭引号
-        int openQuote = raw.indexOf('"', startIdx + 10);
-        if (openQuote < 0) return null;
-        StringBuilder sb = new StringBuilder();
-        int i = openQuote + 1;
-        boolean escape = false;
-        for (; i < raw.length(); i++) {
-            char c = raw.charAt(i);
-            if (escape) { sb.append('\\').append(c); escape = false; continue; }
-            if (c == '\\') { escape = true; continue; }
-            if (c == '"') break;
-            sb.append(c);
-        }
-        return decodeEscapesSafely(sb.toString());
-    }
-
-    /** 将 \n \t \" \\ 字符反转义（保留中文 UTF-8） */
-    private String decodeEscapesSafely(String s) {
-        if (s == null) return null;
-        return s.replace("\\n", "\n")
-                .replace("\\t", "\t")
-                .replace("\\\"", "\"")
-                .replace("\\\\", "\\");
-    }
-
-    /** 重复检查：按 URL/标题去重 */
-    private boolean isDuplicate(String title, String url) {
-        Long byUrl = articleMapper.selectCount(new QueryWrapper<Article>().eq("source_url", url));
-        if (byUrl != null && byUrl > 0) return true;
-        Long byTitle = articleMapper.selectCount(new QueryWrapper<Article>().eq("title", title));
-        return byTitle != null && byTitle > 0;
-    }
-
-    private boolean saveArticle(ParsedDoc d, String sourceName, String sourceUrl, int minutesAgo) {
-        Article a = new Article();
-        a.setCategoryId(CATEGORY_LIVE);
-        a.setTitle(d.title);
-        a.setSummary(d.summary);
-        a.setContent(d.content);
-        a.setAuthor(sourceName);
-        a.setTags(d.tags);
-        a.setReads(0L);
-        a.setStatus(1);
-        a.setPublishTime(LocalDateTime.now().minusMinutes(minutesAgo));
-        a.setSourceType("crawled");
-        a.setSourceUrl(sourceUrl);
-        a.setSourceName(sourceName);
-        a.setEmotionTags(d.tags);
-        try {
-            articleMapper.insert(a);
-            log.info("CrawlSaved id={} title={} src={}", a.getId(), a.getTitle(), sourceName);
-            return true;
-        } catch (Exception e) {
-            log.warn("saveArticle fail title={} err={}", d.title, e.getMessage());
-            return false;
-        }
-    }
-
-    private record Seed(String sourceName, String url) {}
-
-    private static final class ParsedDoc {
-        final String title;
-        final String summary;
-        final String content;
-        final String tags;
-        ParsedDoc(String t, String s, String c, String tags) {
-            this.title = t; this.summary = s; this.content = c; this.tags = tags;
-        }
+    private record Feed(String name, String url, boolean includeAll) {}
+    private record FeedResponse(int statusCode, String body, String etag, String lastModified) {}
+    private static final class Counters {
+        int fetched, imported, updated, duplicate, notModified, skipped, filtered, failed;
     }
 }

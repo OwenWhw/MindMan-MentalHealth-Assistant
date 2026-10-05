@@ -1,28 +1,32 @@
 <script setup>
-import { ref, computed, nextTick, onMounted } from 'vue'
+import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 import { useEmotionStore } from '@/stores/emotion'
 import { logout as logoutApi } from '@/api/auth'
+import { renderChatMarkdown } from '@/utils/chatMarkdown'
+import { visibleChatMessageContent } from '@/utils/chatActions'
 import {
   createSession,
   getMySessions,
   getMessageList,
   archiveSession,
+  restoreSession,
   deleteSession,
   streamChatMessage,
   analyzeEmotion,
-  getAvailableModels
+  getAvailableModels,
+  summarizeSession
 } from '@/api/consult'
-import AnalysisRing from '@/components/AnalysisRing.vue'
 import AppNavBar from '@/components/AppNavBar.vue'
 import UserDropdown from '@/components/UserDropdown.vue'
+import { BookOpen, FileText, Languages, MessageCircle, Mic, Paperclip, SmilePlus, Sparkles as SparklesIcon, X } from 'lucide-vue-next'
+import { USER_NAV_ACTIONS } from '@/constants/userNavigation'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
-
 const displayName = computed(() => authStore.userInfo?.nickname || '用户')
 const roleText = computed(() => (authStore.userInfo?.role === 'admin' ? '管理员' : '普通用户'))
 const emotionStore = useEmotionStore()
@@ -30,6 +34,25 @@ const emotionStore = useEmotionStore()
 const sessionId = ref(null)
 const messages = ref([])
 const input = ref('')
+const referenceArticleId = ref(null)
+const referenceArticleTitle = computed(() => {
+  const title = route.query.articleTitle
+  return Array.isArray(title) ? title[0] : (title || '已选文章')
+})
+const referenceArticleLanguage = computed(() => {
+  const language = Array.isArray(route.query.articleLanguage)
+    ? route.query.articleLanguage[0]
+    : route.query.articleLanguage
+  if (language === 'en') return 'en'
+  if (language === 'zh') return 'zh'
+  return /[A-Za-z]{3}/.test(referenceArticleTitle.value) && !/[\u3400-\u9fff]/.test(referenceArticleTitle.value)
+    ? 'en'
+    : 'zh'
+})
+const referenceArticleIsExcerpt = computed(() => {
+  const value = Array.isArray(route.query.articleExcerpt) ? route.query.articleExcerpt[0] : route.query.articleExcerpt
+  return value === '1'
+})
 const sending = ref(false)
 const creating = ref(true)
 const loadingMessages = ref(false)
@@ -54,13 +77,71 @@ function modelLabel(id) {
 const sessions = ref([])
 const loadingSessions = ref(false)
 const historyVisible = ref(false)
+const summaryVisible = ref(false)
+const summaryLoading = ref(false)
+const summaryContent = ref('')
+const summaryError = ref('')
 const historyTab = ref('all')
 const selectMode = ref(false)
 const selected = ref(new Set())
 
 const moodPanel = ref(false)
-const currentMood = ref('平静')
 const listRef = ref()
+const pageRef = ref(null)
+const composerInputRef = ref(null)
+let motionContext
+const showWelcomeStage = computed(() => messages.value.length > 0 && !messages.value.some((message) => message.role === 'user'))
+const openingPrompts = ['最近有点压力，想说说', '今天心情有些复杂', '我想先整理一下思绪']
+function chooseOpening(text) {
+  input.value = text
+  nextTick(() => composerInputRef.value?.focus())
+}
+
+function chatSegments(content) {
+  const text = String(content || '')
+  const marker = /\[\[mindman-article:(\d+)\]\]/g
+  const segments = []
+  let cursor = 0
+  let match
+  while ((match = marker.exec(text))) {
+    if (match.index > cursor) segments.push({ type: 'text', value: text.slice(cursor, match.index) })
+    segments.push({ type: 'article', id: match[1] })
+    cursor = marker.lastIndex
+  }
+  if (cursor < text.length) segments.push({ type: 'text', value: text.slice(cursor) })
+  return segments
+}
+
+function clearArticleReference() {
+  referenceArticleId.value = null
+  const query = { ...route.query }
+  delete query.articleId
+  delete query.articleTitle
+  delete query.articleLanguage
+  delete query.articleExcerpt
+  router.replace({ path: route.path, query })
+}
+
+function analyzeAndTranslateArticle() {
+  if (!referenceArticleId.value) return
+  const title = `《${referenceArticleTitle.value}》`
+  const prompt = referenceArticleLanguage.value === 'en'
+    ? `请只依据本轮带入的文章${title}翻译并解读，不要根据标题补写正文。使用简体中文，按以下格式简洁回复：\n\n## 译文\n按原文顺序忠实翻译 MindMan 实际收录的内容，保留专名、数字、引语和段落层次，不增加原文没有的观点。遇到双关、文字游戏或难直译的说法，保留英文原词并用一句话解释；不要把修辞误译成心理或医学术语。\n\n## 文章要点\n最多列 3 点，只总结这段原文明确表达的内容；材料不足以判断全文时直接说明。\n\n## 谨慎解读\n最多 2 句，区分“文章写明”与“可以理解为”。不要推测公众人物、粉丝或读者的具体心理状态，不作诊断。涉及死亡、疾病或其他时效性事实时，只表述为“文章称”，不声称已独立核实。若本站保存的是摘要或片段，开头注明翻译范围仅限当前收录内容。不要加通用安慰或反问。`
+    : `请只依据本轮带入的文章${title}，用简体中文简洁回复：列出最多 3 个文章明确表达的要点，再用最多 2 句区分文章观点与谨慎解读。不要从标题补写正文，不推测文中人物或读者的心理状态，不把修辞当成诊断，也不要加通用安慰或反问。`
+  handleSend(prompt, {
+    displayText: `翻译并解读文章：《${referenceArticleTitle.value}》`,
+    skipEmotionAnalysis: true,
+    articleTranslation: true
+  })
+}
+
+function discussReferencedArticle() {
+  if (!referenceArticleId.value) return
+  handleSend(
+    `请结合文章《${referenceArticleTitle.value}》和我接下来分享的情况，陪我梳理它与现实生活的联系。先简要说明文章中相关的观点，再问我一个具体、开放的问题；请区分文章内容和你的推测，不作诊断。`,
+    { displayText: `结合文章聊聊：《${referenceArticleTitle.value}》`, skipEmotionAnalysis: true }
+  )
+}
 
 // ===== AI 情绪分析 =====
 const analysisVisible = ref(true)
@@ -72,35 +153,13 @@ const sideCollapsed = ref(localStorage.getItem('mha_analysis_auto_open') === '1'
 
 // 分析反馈文案
 const analysisSummary = computed(() => {
-  const d = emotion.value
-  if (!d) return ''
-  const max = Math.max(d.stress, d.anxiety, d.sleepRisk)
-  if (max >= 65) return `你的${d.emotion}情绪较为明显，建议给自己一些时间放松，需要时随时来找我聊聊`
-  if (max >= 40) return `整体情绪在可接受范围，${d.emotion}维度稍有波动，保持规律作息会帮你更平稳`
-  return '当前情绪状态良好，继续保持积极心态，每一天都值得好好度过'
+  return emotion.value?.interpretation || ''
 })
 
-// 反馈
-const feedbackGiven = ref('')
-function giveFeedback(type) {
-  feedbackGiven.value = type
-  ElMessage.success(type === 'helpful' ? '感谢你的反馈 ❤️' : type === 'not-helpful' ? '已收到，我们会改进 🙏' : '太开心能帮到你 ✨')
-  setTimeout(() => { feedbackGiven.value = '' }, 2500)
-}
-
 const WELCOME =
-  '您好，我是 MindMan，您的 AI 心理健康助手。今天感觉怎么样？可以慢慢告诉我，我会一直在这里陪着你。'
+  '你好，我是你的 AI 倾听助手。今天有什么让你挂心的事？不必想好怎么说，从一句话开始就好。'
 
-const moodOptions = ['很平静', '还不错', '有点低落', '很糟糕']
-const moodIcons = {
-  平静: 'Sunny',
-  很平静: 'Sunrise',
-  还不错: 'PartlyCloudy',
-  有点低落: 'Cloudy',
-  很糟糕: 'Drizzling'
-}
-
-const moodIconName = computed(() => moodIcons[currentMood.value] || 'Sunny')
+const moodOptions = ['今天有件开心的事', '我有点累', '我有些担心', '说不上来是什么感觉']
 
 const userInitial = computed(
   () =>
@@ -126,14 +185,16 @@ async function runAnalysis(content) {
     emotion.value = data
     lastAnalysisTime.value = (data.analyzedAt || '').slice(11, 19) || nowTime()
     // 跨页面共享：情绪花园种花时读取这些字段作为预填
-    emotionStore.setLatest({
-      emotion: data.emotion,
-      emotionIcon: data.emotionIcon,
-      emotionScore: data.emotionStar,
-      sleepScore: data.sleepStar,
-      stressScore: data.stressStar,
-      analyzedAt: data.analyzedAt
-    })
+    if (data.emotion && data.emotion !== '暂不判断') {
+      emotionStore.setLatest({
+        emotion: data.emotion,
+        evidence: data.evidence || '',
+        analysisSource: data.analysisSource || 'rules',
+        analyzedAt: data.analyzedAt
+      })
+    } else {
+      emotionStore.clear()
+    }
   } catch (e) {
     /* 分析失败不打扰对话 */
   } finally {
@@ -162,7 +223,13 @@ async function loadSessions() {
   loadingSessions.value = true
   try {
     const data = await getMySessions({ page: 1, pageSize: 30 })
-    sessions.value = Array.isArray(data) ? data : (data?.list || [])
+    const rows = Array.isArray(data) ? data : (data?.list || [])
+    sessions.value = rows.map((session) => ({
+      ...session,
+      title: visibleChatMessageContent('user', session.title),
+      lastMessage: visibleChatMessageContent('user', session.lastMessage || session.lastMessagePreview || ''),
+      lastTime: session.lastTime || session.updatedAt || session.createdAt
+    }))
   } catch (e) {
     if (!e?.handled) ElMessage.error(e.message || '加载会话列表失败')
   } finally {
@@ -199,7 +266,7 @@ async function createNewSession() {
     }
     messages.value = []
     pushMessage('assistant', WELCOME)
-    loadSessions()
+    await loadSessions()
     return true
   } catch (e) {
     if (!e?.handled) ElMessage.error(e.message || '创建会话失败，请稍后重试')
@@ -209,13 +276,18 @@ async function createNewSession() {
   }
 }
 
-// 新建会话：归档所有进行中的会话（确保永远只有一个进行中），再创建新会话
+// 新建会话：先收好所有进行中的会话，再创建新的空白会话
 async function startNewSession() {
-  // 归档所有进行中的会话
   const activeList = sessions.value.filter((s) => s.status !== 2)
   for (const s of activeList) {
-    if (s.id === sessionId.value && !messages.value.some((m) => m.role === 'user')) continue
-    try { await archiveSession(s.id); s.status = 2; s.statusText = '已结束' } catch (e) { /* 不阻塞 */ }
+    try {
+      await archiveSession(s.id)
+      s.status = 2
+      s.statusText = '已归档'
+    } catch (e) {
+      if (!e?.handled) ElMessage.error(e.message || '归档旧会话失败，请稍后重试')
+      return
+    }
   }
   historyVisible.value = false
   await createNewSession()
@@ -229,7 +301,7 @@ async function archiveSessionItem(session) {
   try {
     await archiveSession(session.id)
     session.status = 2
-    session.statusText = '已结束'
+    session.statusText = '已归档'
     session.endedAt = new Date().toLocaleString()
     ElMessage.success('会话已归档')
   } catch (e) {
@@ -262,19 +334,33 @@ async function removeSession(session) {
 
 async function openSession(session) {
   if (sending.value || loadingMessages.value) return
-  if (session.id === sessionId.value && messages.value.length) return
-  sessionId.value = session.id
-  creating.value = false
-  historyVisible.value = false
+  if (session.id === sessionId.value && messages.value.length && session.status !== 2) return
   loadingMessages.value = true
   try {
+    const current = sessions.value.find((item) => item.id === sessionId.value)
+    if (current && current.id !== session.id && current.status !== 2) {
+      await archiveSession(current.id)
+      current.status = 2
+      current.statusText = '已归档'
+    }
+    if (session.status === 2) {
+      await restoreSession(session.id)
+      session.status = 1
+      session.statusText = '进行中'
+      session.endedAt = null
+    }
     const list = await getMessageList(session.id)
     messages.value = (list || []).map((m) => ({
       role: m.role,
-      content: m.content,
+      content: visibleChatMessageContent(m.role, m.content),
       time: (m.createdAt || '').slice(11, 19),
-      cards: m.cards || []
+      cards: m.cards || [],
+      deliveryStatus: m.deliveryStatus || 'complete'
     }))
+    sessionId.value = session.id
+    creating.value = false
+    historyVisible.value = false
+    summaryContent.value = ''
     if (!messages.value.length) {
       pushMessage('assistant', WELCOME)
     }
@@ -344,26 +430,33 @@ async function removeSelected() {
 }
 
 // ===== 消息发送 =====
-async function handleSend(text) {
+async function handleSend(text, options = {}) {
   const content = (text ?? input.value).trim()
+  const displayContent = String(options.displayText ?? content).trim()
   if (!content || sending.value) return
   if (!sessionId.value) {
     ElMessage.warning('会话创建中，请稍候')
     return
   }
-  pushMessage('user', content)
+  pushMessage('user', displayContent || content)
   input.value = ''
   sending.value = true
+  summaryContent.value = ''
 
   // 用户倾诉后自动触发 AI 情绪分析
-  runAnalysis(content)
+  if (!options.skipEmotionAnalysis) runAnalysis(content)
 
   // 先插入一条空的 AI 消息，等待首字到达后开始流式输出
   const reply = { role: 'assistant', content: '', time: nowTime(), cards: [], streaming: true }
   messages.value.push(reply)
   scrollToBottom()
   try {
-    for await (const chunk of streamChatMessage(sessionId.value, content, currentModel.value)) {
+    for await (const chunk of streamChatMessage(sessionId.value, content, currentModel.value, {
+      includeGardenContext: !!options.includeGardenContext,
+      referenceArticleId: referenceArticleId.value,
+      articleTranslationMode: !!options.articleTranslation,
+      displayContent: displayContent !== content ? displayContent : undefined
+    })) {
       if (chunk.text) reply.content = (reply.content || '') + chunk.text
       if (chunk.done) {
         reply.cards = chunk.cards || []
@@ -374,6 +467,10 @@ async function handleSend(text) {
   } catch (e) {
     const idx = messages.value.indexOf(reply)
     if (idx > -1 && !reply.content) messages.value.splice(idx, 1)
+    if (idx > -1 && reply.content) {
+      reply.streaming = false
+      reply.deliveryStatus = 'interrupted'
+    }
     if (!e?.handled) ElMessage.error(e.message || '发送失败，请稍后再试')
   } finally {
     sending.value = false
@@ -394,9 +491,11 @@ function toggleMood() {
 }
 
 function pickMood(option) {
-  currentMood.value = option
   moodPanel.value = false
-  handleSend(`我今天感觉${option}`)
+  input.value = input.value.trim()
+    ? `${input.value.trimEnd()}\n${option}`
+    : option
+  nextTick(() => composerInputRef.value?.focus())
 }
 
 function handleTodo() {
@@ -404,7 +503,61 @@ function handleTodo() {
 }
 
 function askAdvice() {
-  handleSend('可以给我一些放松心情的小建议吗？')
+  handleSend('请结合我刚才分享的内容，给我一两个温和、可尝试的小建议。', {
+    displayText: '根据刚才的内容给我一些建议',
+    skipEmotionAnalysis: true
+  })
+}
+
+function chooseAiAction(action) {
+  if (action === 'article') {
+    handleSend('按我们这段对话里我提到的主题，从 MindMan 心理阅读里找一篇已发布文章给我。', {
+      displayText: '按刚才聊到的主题找一篇文章',
+      skipEmotionAnalysis: true
+    })
+    return
+  }
+  if (action === 'garden') {
+    handleSend(
+      '请结合我近30天的情绪花园记录，温和回顾出现较多的情绪、评分和可能的情境联系。请区分记录事实与推测，不做诊断，并给我一个值得继续觉察的问题。',
+      { displayText: '回顾近30天的情绪花园', includeGardenContext: true, skipEmotionAnalysis: true }
+    )
+    return
+  }
+  askAdvice()
+}
+
+async function createConversationSummary() {
+  if (!sessionId.value || summaryLoading.value) return
+  if (sending.value) {
+    ElMessage.info('等这条回复完成后，就可以生成总结了')
+    return
+  }
+  if (!messages.value.some((message) => message.role === 'user')) {
+    ElMessage.info('先聊几句，再生成本次对话总结')
+    return
+  }
+  summaryVisible.value = true
+  summaryLoading.value = true
+  summaryContent.value = ''
+  summaryError.value = ''
+  try {
+    summaryContent.value = await summarizeSession(sessionId.value)
+  } catch (error) {
+    summaryError.value = error.message || 'AI 总结暂时不可用，请稍后重试'
+  } finally {
+    summaryLoading.value = false
+  }
+}
+
+async function copySummary() {
+  if (!summaryContent.value) return
+  try {
+    await navigator.clipboard.writeText(summaryContent.value)
+    ElMessage.success('总结已复制')
+  } catch {
+    ElMessage.warning('复制失败，请手动选择总结内容')
+  }
 }
 
 // ===== 语音输入 =====
@@ -473,6 +626,18 @@ async function handleLogout() {
 }
 
 onMounted(async () => {
+  const articleId = String(route.query.articleId || '')
+  referenceArticleId.value = /^\d+$/.test(articleId) ? Number(articleId) : null
+  const shouldReviewGarden = route.query.gardenReview === '1'
+  if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    import('gsap').then(({ gsap }) => {
+      if (!pageRef.value) return
+      motionContext = gsap.context(() => {
+        gsap.from('.consult-context-bar', { y: -18, autoAlpha: 0, duration: 0.7, ease: 'power2.out', clearProps: 'all' })
+        gsap.from('.composer-wrap', { y: 24, autoAlpha: 0, duration: 0.75, delay: 0.15, ease: 'power2.out', clearProps: 'all' })
+      }, pageRef.value)
+    })
+  }
   // 加载可用模型
   try {
     availableModels.value = await getAvailableModels()
@@ -487,27 +652,42 @@ onMounted(async () => {
   await loadSessions()
   // 优先根据 URL ?session=xxx 打开指定会话
   const targetId = Number(route.query.session)
-  if (targetId) {
-    const target = sessions.value.find((s) => s.id === targetId)
-    if (target) {
-      openSession(target)
-      return
-    }
-  }
-  // 有历史会话时恢复最近一条，不自动新建；只有完全没有会话时才自动创建
-  const active = sessions.value.find((s) => s.status !== 2)
-  if (active) {
-    openSession(active)
-  } else if (sessions.value.length) {
-    openSession(sessions.value[0])
+  const target = targetId ? sessions.value.find((s) => s.id === targetId) : null
+  if (target) {
+    await openSession(target)
   } else {
-    createNewSession()
+    // 有历史会话时恢复最近一条，不自动新建；只有完全没有会话时才自动创建
+    const active = sessions.value.find((s) => s.status !== 2)
+    if (active) await openSession(active)
+    else if (sessions.value.length) await openSession(sessions.value[0])
+    else await createNewSession()
+  }
+
+  if (shouldReviewGarden) {
+    const query = { ...route.query }
+    delete query.gardenReview
+    await router.replace({ path: route.path, query })
+    await handleSend('请根据我最近30天的情绪花园记录，帮我温和回顾出现较多的情绪、评分和可能的情境联系。请区分记录事实与推测，不做诊断，并给我一个值得继续觉察的问题。', {
+      displayText: '回顾近30天的情绪花园',
+      includeGardenContext: true,
+      skipEmotionAnalysis: true
+    })
   }
 })
+onUnmounted(() => motionContext?.revert())
 </script>
 
 <template>
-  <div class="workspace">
+  <div ref="pageRef" class="workspace">
+    <AppNavBar
+      :actions="USER_NAV_ACTIONS"
+      :current-path="route.path === '/home/consult' ? '/consult' : route.path"
+    >
+      <template #actions-after>
+        <UserDropdown />
+      </template>
+    </AppNavBar>
+    <div class="workspace-body">
     <aside class="side" :class="{ collapsed: sideCollapsed }">
       <!-- 折叠态：面板完全隐藏 -->
       <template v-if="sideCollapsed"></template>
@@ -526,7 +706,7 @@ onMounted(async () => {
               </button>
             </el-tooltip>
           </div>
-          <div class="side-sub">Mind Sensor · 实时感知</div>
+          <div class="side-sub">AI 会在倾听中整理情绪变化</div>
         </div>
 
         <div class="side-body">
@@ -542,8 +722,8 @@ onMounted(async () => {
               />
               <defs>
                 <linearGradient id="waveGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" stop-color="#60a5fa" />
-                  <stop offset="100%" stop-color="#3b82f6" />
+                  <stop offset="0%" stop-color="#a9c5a6" />
+                  <stop offset="100%" stop-color="#426b4b" />
                 </linearGradient>
               </defs>
             </svg>
@@ -557,105 +737,55 @@ onMounted(async () => {
               <div class="scan-line"></div>
               <span class="scan-core"></span>
             </div>
-            <p class="scan-text">正在分析…</p>
+            <p class="scan-text">正在整理这句话里的线索…</p>
           </div>
 
           <!-- 结果 -->
           <div v-else class="analysis-result">
-            <!-- 主导情绪 + 评分 -->
+            <div class="analysis-result-head">
+              <span>本轮观察</span>
+              <span class="analysis-source" :class="emotion.analysisSource">
+                {{ emotion.analysisSource === 'agent' ? 'MindMan Agent' : '本地规则备用' }}
+              </span>
+            </div>
+
             <div class="emotion-chip">
-              <span class="emotion-icon">{{ emotion.emotionIcon }}</span>
+              <span class="emotion-icon"><SparklesIcon :size="18" :stroke-width="1.8" aria-hidden="true" /></span>
               <div class="emotion-meta">
                 <div class="emotion-name">{{ emotion.emotion }}</div>
-                <div class="emotion-bar">
-                  <span :style="{ width: emotion.emotionScore + '%' }"></span>
+                <div class="emotion-state">
+                  {{ emotion.emotion === '暂不判断' ? '这句话没有可核验的明确线索，先不判断' : '仅描述这一次表达，不代表长期状态' }}
                 </div>
               </div>
-              <span class="emotion-score">{{ emotion.emotionScore }}</span>
             </div>
 
-            <!-- 三维星制评分（与后台格式一致） -->
-            <div class="star-board">
-              <div class="star-row">
-                <span class="star-label">情绪评分</span>
-                <el-rate
-                  :model-value="emotion.emotionStar"
-                  disabled
-                  :colors="['#fbbf24', '#fbbf24', '#fbbf24']"
-                />
-                <span class="star-val">{{ emotion.emotionStar }}/5</span>
-              </div>
-              <div class="star-row">
-                <span class="star-label">睡眠质量</span>
-                <el-rate
-                  :model-value="emotion.sleepStar"
-                  disabled
-                  :colors="['#22d3ee', '#22d3ee', '#22d3ee']"
-                />
-                <span class="star-val">{{ emotion.sleepStar }}/5</span>
-              </div>
-              <div class="star-row">
-                <span class="star-label">压力水平</span>
-                <el-rate
-                  :model-value="emotion.stressStar"
-                  disabled
-                  :colors="['#ef4444', '#ef4444', '#ef4444']"
-                />
-                <span class="star-val">{{ emotion.stressStar }}/5</span>
+            <blockquote v-if="emotion.evidence" class="analysis-evidence">
+              <span>原话依据</span>
+              <p>“{{ emotion.evidence }}”</p>
+            </blockquote>
+
+            <div v-if="emotion.cues?.length" class="analysis-cues">
+              <div v-for="cue in emotion.cues" :key="cue.label" class="analysis-cue">
+                <div class="cue-heading">
+                  <span class="cue-dot" :class="{ mentioned: cue.evidence }"></span>
+                  <strong>{{ cue.label }}</strong>
+                  <span class="cue-status" :class="{ mentioned: cue.evidence }">{{ cue.status }}</span>
+                </div>
+                <small v-if="cue.evidence">“{{ cue.evidence }}”</small>
               </div>
             </div>
 
-            <div class="rings-stack">
-              <div class="ring-card">
-                <AnalysisRing
-                  :value="emotion.stress"
-                  label="压力值"
-                  :level="emotion.stressLevel"
-                  color="#ff6b6b"
-                  color2="#ffb35c"
-                  :size="88"
-                />
-              </div>
-              <div class="ring-card">
-                <AnalysisRing
-                  :value="emotion.anxiety"
-                  label="焦虑指数"
-                  :level="emotion.anxietyLevel"
-                  color="#4d7cff"
-                  color2="#60a5fa"
-                  :size="88"
-                />
-              </div>
-              <div class="ring-card">
-                <AnalysisRing
-                  :value="emotion.sleepRisk"
-                  label="睡眠风险"
-                  :level="emotion.sleepLevel"
-                  color="#22d3ee"
-                  color2="#34d399"
-                  :size="88"
-                />
-              </div>
-            </div>
-
-            <div class="analysis-suggestions">
-              <div v-for="(tip, ti) in emotion.suggestions" :key="ti" class="suggestion-item">
-                <el-icon><Sparkles /></el-icon>
-                <span>{{ tip }}</span>
-              </div>
-            </div>
-
-            <!-- AI 分析反馈卡片 -->
             <div class="feedback-card">
               <div class="fb-card-head">
-                <el-icon><ChatLineSquare /></el-icon>
-                <span>AI 分析反馈</span>
+                <SparklesIcon :size="14" :stroke-width="1.8" aria-hidden="true" />
+                <span>{{ emotion.analysisSource === 'agent' ? 'AI 的初步理解' : '规则观察' }}</span>
               </div>
               <p class="fb-card-body">{{ analysisSummary }}</p>
-              <div v-if="lastAnalysisTime" class="fb-card-foot">
-                <el-icon><Timer /></el-icon>
-                {{ lastAnalysisTime }} 更新
-              </div>
+            </div>
+
+            <div class="analysis-provenance">
+              <span>依据：本轮原话</span>
+              <span>不是量表或诊断</span>
             </div>
 
           </div>
@@ -668,26 +798,15 @@ onMounted(async () => {
     </aside>
 
     <section class="main">
-      <header class="chat-header">
-        <div class="ai-brand">
-          <div class="ai-logo">
-            <svg viewBox="0 0 48 48" width="22" height="22" aria-hidden="true">
-              <g fill="#ffffff">
-                <ellipse cx="24" cy="10" rx="6" ry="8.5" />
-                <ellipse cx="24" cy="38" rx="6" ry="8.5" />
-                <ellipse cx="10" cy="24" rx="8.5" ry="6" />
-                <ellipse cx="38" cy="24" rx="8.5" ry="6" />
-                <circle cx="24" cy="24" r="5.5" />
-              </g>
-            </svg>
+      <div class="consult-context-bar">
+        <div class="consult-context-copy">
+          <div class="consult-context-title-row">
+            <h1 class="consult-context-title">倾听空间</h1>
+            <span class="consult-ai-badge"><SparklesIcon :size="13" :stroke-width="1.8" /> AI 倾听助手</span>
           </div>
-          <div class="ai-info">
-            <div class="ai-name">MindMan</div>
-            <div class="ai-sub" :class="{ thinking: sending || loadingMessages }">
-              <span v-if="sending || loadingMessages">正在思考…</span>
-              <span v-else>MindMan · 在线陪伴</span>
-            </div>
-          </div>
+          <p class="consult-context-status" :class="{ thinking: sending || loadingMessages }">
+            {{ sending || loadingMessages ? '正在思考…' : '慢慢说，我在听' }}
+          </p>
         </div>
 
         <div class="header-actions">
@@ -707,41 +826,36 @@ onMounted(async () => {
             </button>
           </el-tooltip>
 
+          <el-tooltip content="AI 总结本次对话" placement="bottom" :show-after="400">
+            <button
+              class="icon-btn summary-action"
+              aria-label="AI 总结本次对话"
+              :disabled="sending || !messages.some(message => message.role === 'user')"
+              @click="createConversationSummary"
+            >
+              <FileText :size="16" :stroke-width="1.8" />
+            </button>
+          </el-tooltip>
+
           <el-tooltip content="会话历史" placement="bottom" :show-after="400">
             <button class="icon-btn" @click="historyVisible = true">
               <el-icon><Clock /></el-icon>
             </button>
           </el-tooltip>
 
-          <!-- 导航 -->
-          <el-tooltip content="情绪花园" placement="bottom" :show-after="400">
-            <button class="icon-btn" @click="router.push('/garden')">
-              <el-icon><Cherry /></el-icon>
-            </button>
-          </el-tooltip>
-          <el-tooltip content="知识文章" placement="bottom" :show-after="400">
-             <button class="icon-btn hide-sm" @click="router.push('/home/articles')">
-               <el-icon><Collection /></el-icon>
-             </button>
-           </el-tooltip>
-          <el-tooltip content="白噪音空间" placement="bottom" :show-after="400">
-            <button class="icon-btn hide-sm" @click="router.push('/relax')">
-              <el-icon><WindPower /></el-icon>
-            </button>
-          </el-tooltip>
-          <el-tooltip content="回到主页" placement="bottom" :show-after="400">
-            <button class="icon-btn home-icon" @click="goHome">
-              <el-icon><HomeFilled /></el-icon>
-            </button>
-          </el-tooltip>
-
-          <!-- 用户 -->
-          <UserDropdown />
         </div>
-      </header>
+      </div>
 
-      <div ref="listRef" class="chat-scroll">
+        <div ref="listRef" class="chat-scroll">
         <div class="chat-column">
+          <div v-if="showWelcomeStage" class="chat-welcome">
+            <span class="welcome-index">AI 正在倾听</span>
+            <h1>今天，<em>想从哪里说起？</em></h1>
+            <p>我是你的 AI 倾听助手，可以先听你说，再陪你整理此刻的感受。不必讲完整，从一句话开始就好。</p>
+            <div class="opening-prompts" aria-label="对话开场建议">
+              <button v-for="prompt in openingPrompts" :key="prompt" type="button" @click="chooseOpening(prompt)">{{ prompt }} <span aria-hidden="true">↗</span></button>
+            </div>
+          </div>
           <div
             v-for="(msg, index) in messages"
             :key="index"
@@ -753,20 +867,12 @@ onMounted(async () => {
               class="bubble-avatar"
               :class="{ breathe: msg.streaming }"
             >
-              <svg viewBox="0 0 48 48" width="18" height="18" aria-hidden="true">
-                <g fill="#ffffff">
-                  <ellipse cx="24" cy="10" rx="5" ry="7.5" />
-                  <ellipse cx="24" cy="38" rx="5" ry="7.5" />
-                  <ellipse cx="10" cy="24" rx="7.5" ry="5" />
-                  <ellipse cx="38" cy="24" rx="7.5" ry="5" />
-                  <circle cx="24" cy="24" r="4.5" />
-                </g>
-              </svg>
+              <img src="/mindman-mark-refresh.svg" alt="" />
             </div>
 
             <div v-if="msg.role === 'assistant'" class="ai-bubble" :class="{ streaming: msg.streaming }">
               <div class="bubble-meta">
-                <span class="bubble-name">MindMan</span>
+                <span class="bubble-name">AI 倾听助手</span>
                 <span class="bubble-time">{{ msg.time }}</span>
               </div>
 
@@ -778,7 +884,15 @@ onMounted(async () => {
               </div>
               <template v-else>
                 <div class="chat-content">
-                  {{ msg.content }}<span v-if="msg.streaming" class="stream-cursor"></span>
+                  <template v-for="(segment, segmentIndex) in chatSegments(msg.content)" :key="segmentIndex">
+                    <div v-if="segment.type === 'text'" class="chat-markdown" v-html="renderChatMarkdown(segment.value)"></div>
+                    <router-link v-else class="article-inline-link" :to="`/home/articles/${segment.id}`">
+                      <BookOpen :size="14" :stroke-width="1.8" /> 打开这篇文章
+                    </router-link>
+                  </template><span v-if="msg.streaming" class="stream-cursor"></span>
+                </div>
+                <div v-if="msg.deliveryStatus === 'interrupted' || msg.deliveryStatus === 'failed'" class="reply-state">
+                  {{ msg.deliveryStatus === 'interrupted' ? '这段回复没有完整生成，已保留已收到的内容。' : '这次回复未能生成，可以重新发送。' }}
                 </div>
                 <div v-for="(card, ci) in msg.cards" :key="ci" class="ai-card">
                   <div class="card-head">
@@ -798,22 +912,14 @@ onMounted(async () => {
             </div>
 
             <div v-if="msg.role === 'user'" class="user-bubble">
-              <div class="chat-content">{{ msg.content }}</div>
+                <div class="chat-content">{{ msg.content }}</div>
               <div class="bubble-time">{{ msg.time }}</div>
             </div>
           </div>
 
           <div v-if="loadingMessages" class="chat-row assistant">
             <div class="bubble-avatar breathe">
-              <svg viewBox="0 0 48 48" width="18" height="18" aria-hidden="true">
-                <g fill="#ffffff">
-                  <ellipse cx="24" cy="10" rx="5" ry="7.5" />
-                  <ellipse cx="24" cy="38" rx="5" ry="7.5" />
-                  <ellipse cx="10" cy="24" rx="7.5" ry="5" />
-                  <ellipse cx="38" cy="24" rx="7.5" ry="5" />
-                  <circle cx="24" cy="24" r="4.5" />
-                </g>
-              </svg>
+              <img src="/mindman-mark-refresh.svg" alt="" />
             </div>
             <div class="ai-bubble thinking-bubble">
               <span class="thinking-label">正在思考</span>
@@ -826,40 +932,85 @@ onMounted(async () => {
       </div>
 
       <div class="composer-wrap">
+        <div v-if="referenceArticleId" class="article-context-bar">
+          <div class="article-context-icon"><BookOpen :size="17" :stroke-width="1.8" aria-hidden="true" /></div>
+          <div class="article-context-copy">
+            <span class="article-context-label">本轮参考文章</span>
+            <strong :title="referenceArticleTitle">{{ referenceArticleTitle }}</strong>
+            <small v-if="referenceArticleIsExcerpt">当前为来源摘要，翻译与分析仅覆盖这部分收录内容</small>
+            <small v-else>AI 只依据 MindMan 收录内容回应，不会自动读取外链全文</small>
+          </div>
+          <div class="article-context-actions">
+            <button
+              type="button"
+              class="article-context-action primary"
+              :disabled="sending || creating"
+              @click="analyzeAndTranslateArticle"
+            >
+              <Languages v-if="referenceArticleLanguage === 'en'" :size="15" :stroke-width="1.9" aria-hidden="true" />
+              <SparklesIcon v-else :size="15" :stroke-width="1.9" aria-hidden="true" />
+              {{ referenceArticleLanguage === 'en' ? '翻译并解读' : '提炼文章要点' }}
+            </button>
+            <button
+              type="button"
+              class="article-context-action"
+              :disabled="sending || creating"
+              @click="discussReferencedArticle"
+            >
+              <MessageCircle :size="15" :stroke-width="1.8" aria-hidden="true" />
+              结合文章聊聊
+            </button>
+            <button type="button" class="article-context-remove" aria-label="移除参考文章" @click="clearArticleReference">
+              <X :size="15" :stroke-width="1.8" />
+            </button>
+          </div>
+        </div>
+
         <Transition name="mood-fade">
-          <div v-if="moodPanel" class="mood-panel">
-            <span
+          <div v-if="moodPanel" class="mood-panel" role="group" aria-label="心情开场句">
+            <span class="mood-panel-hint">从一句话开始，接着写发生了什么</span>
+            <button
               v-for="option in moodOptions"
               :key="option"
+              type="button"
               class="mood-chip"
               @click="pickMood(option)"
             >
               {{ option }}
-            </span>
+            </button>
           </div>
         </Transition>
 
           <div class="composer">
             <div class="composer-tools">
               <el-tooltip content="心情" placement="top" :show-after="300">
-                <button class="tool-btn" @click="toggleMood">
-                  <span>😊</span>
+                <button class="tool-btn" type="button" aria-label="选择一句心情开场" :aria-expanded="moodPanel" @click="toggleMood">
+                  <SmilePlus :size="18" :stroke-width="1.7" />
                 </button>
               </el-tooltip>
               <el-tooltip content="上传图片" placement="top" :show-after="300">
                 <button class="tool-btn" @click="handleTodo">
-                  <span>📎</span>
+                  <Paperclip :size="18" :stroke-width="1.7" />
                 </button>
               </el-tooltip>
               <el-tooltip :content="listening ? '点击结束录音' : '语音输入'" placement="top" :show-after="300">
                 <button class="tool-btn" :class="{ listening }" @click="toggleVoice">
-                  <span>🎤</span>
+                  <Mic :size="18" :stroke-width="1.7" />
                 </button>
               </el-tooltip>
-              <el-tooltip content="AI 建议" placement="top" :show-after="300">
-                <button class="tool-btn" @click="askAdvice">
-                  <span>✨</span>
-                </button>
+              <el-tooltip content="AI 建议与花园回顾" placement="top" :show-after="300">
+                <el-dropdown trigger="click" @command="chooseAiAction">
+                  <button class="tool-btn" aria-label="AI 建议与花园回顾" :disabled="sending">
+                    <SparklesIcon :size="18" :stroke-width="1.7" />
+                  </button>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item command="advice">根据对话给我温和建议</el-dropdown-item>
+                      <el-dropdown-item command="garden">结合情绪花园回顾近况</el-dropdown-item>
+                      <el-dropdown-item command="article">从对话主题找一篇文章</el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
               </el-tooltip>
               <el-tooltip
                 :content="'当前模型：' + (modelLabel(currentModel) || currentModel)"
@@ -893,6 +1044,7 @@ onMounted(async () => {
           </div>
 
           <el-input
+            ref="composerInputRef"
             v-model="input"
             type="textarea"
             :rows="1"
@@ -913,34 +1065,43 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- 反馈卡片 -->
-      <div v-if="messages.some(m => m.role === 'user')" class="feedback-bar">
-        <span class="feedback-label">这次对话对你有帮助吗？</span>
-        <div class="feedback-btns">
-          <button
-            class="fb-btn"
-            :class="{ active: feedbackGiven === 'helpful', picked: feedbackGiven }"
-            @click="giveFeedback('helpful')"
-          >
-            <span>👍</span> 有帮助
-          </button>
-          <button
-            class="fb-btn"
-            :class="{ active: feedbackGiven === 'not-helpful', picked: feedbackGiven }"
-            @click="giveFeedback('not-helpful')"
-          >
-            <span>👎</span> 需改进
-          </button>
-          <button
-            class="fb-btn primary"
-            :class="{ active: feedbackGiven === 'great', picked: feedbackGiven }"
-            @click="giveFeedback('great')"
-          >
-            <span>✨</span> 太棒了
-          </button>
-        </div>
-      </div>
     </section>
+    </div>
+
+    <el-dialog
+      v-model="summaryVisible"
+      class="conversation-summary-dialog"
+      width="min(620px, calc(100vw - 32px))"
+      :close-on-click-modal="!summaryLoading"
+    >
+      <template #header>
+        <div class="summary-dialog-heading">
+          <span class="summary-dialog-icon"><SparklesIcon :size="17" :stroke-width="1.8" /></span>
+          <div>
+            <strong>本次对话总结</strong>
+            <span>只整理你在当前会话里分享的内容</span>
+          </div>
+        </div>
+      </template>
+      <div v-if="summaryLoading" class="summary-loading">
+        <span class="summary-loading-orb"></span>
+        <span>AI 正在整理这段对话…</span>
+      </div>
+      <div v-else-if="summaryError" class="summary-error">
+        <p>{{ summaryError }}</p>
+        <button type="button" @click="createConversationSummary">再试一次</button>
+      </div>
+      <div v-else class="summary-content chat-markdown" v-html="renderChatMarkdown(summaryContent)"></div>
+      <template #footer>
+        <div class="summary-dialog-footer">
+          <span>这是一份温和回顾，不构成诊断。</span>
+          <div>
+            <button type="button" class="summary-close" @click="summaryVisible = false">关闭</button>
+            <button type="button" class="summary-copy" :disabled="!summaryContent" @click="copySummary">复制总结</button>
+          </div>
+        </div>
+      </template>
+    </el-dialog>
 
     <Transition name="drawer">
       <div v-if="historyVisible" class="drawer-mask" @click.self="historyVisible = false">
@@ -1017,6 +1178,13 @@ onMounted(async () => {
                       >
                         归档
                       </button>
+                      <button
+                        v-else
+                        class="mini-btn"
+                        @click.stop="openSession(session)"
+                      >
+                        继续
+                      </button>
                       <button class="mini-btn danger" @click.stop="removeSession(session)">
                         删除
                       </button>
@@ -1047,7 +1215,9 @@ onMounted(async () => {
 .workspace {
   display: flex;
   height: 100vh;
-  background: #f5f9ff;
+  padding-top: 82px;
+  box-sizing: border-box;
+  background: #f8f7f2;
   overflow: hidden;
 }
 
@@ -1859,6 +2029,35 @@ onMounted(async () => {
   word-break: break-word;
 }
 
+.article-inline-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 3px;
+  padding: 4px 9px;
+  border: 1px solid #d5e3d2;
+  border-radius: 999px;
+  background: #f4f8f1;
+  color: #426b4b;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background .18s ease, border-color .18s ease, transform .18s ease;
+}
+
+.article-inline-link:hover {
+  transform: translateY(-1px);
+  border-color: #9bb99a;
+  background: #eaf2e7;
+}
+
+.article-inline-link:focus-visible {
+  outline: 2px solid #739a79;
+  outline-offset: 2px;
+}
+
 /* AI 回复中的玻璃卡片 */
 .ai-card {
   margin-top: 14px;
@@ -2133,7 +2332,10 @@ onMounted(async () => {
   bottom: calc(100% - 6px);
   transform: translateX(-50%);
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
+  width: max-content;
+  max-width: min(680px, calc(100vw - 24px));
   padding: 12px 14px;
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.78);
@@ -2143,16 +2345,27 @@ onMounted(async () => {
   box-shadow: 0 20px 50px rgba(59, 130, 246, 0.16);
 }
 
+.mood-panel-hint {
+  flex-basis: 100%;
+  color: #718675;
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 0 3px 2px;
+}
+
 .mood-chip {
   padding: 7px 15px;
   border-radius: 999px;
   border: 1px solid #e2e8f0;
   background: #ffffff;
   font-size: 13px;
+  font-family: inherit;
   color: #475569;
   cursor: pointer;
   transition: all 0.2s;
 }
+
+.mood-chip:focus-visible { outline: 2px solid #729677; outline-offset: 2px; }
 
 .mood-chip:hover {
   border-color: #3b82f6;
@@ -2169,70 +2382,6 @@ onMounted(async () => {
 .mood-fade-leave-to {
   opacity: 0;
   transform: translateX(-50%) translateY(6px);
-}
-
-/* ===== 反馈卡片 ===== */
-.feedback-bar {
-  position: relative;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-  padding: 10px 24px 18px;
-}
-
-.feedback-label {
-  font-size: 12.5px;
-  color: #94a3b8;
-  white-space: nowrap;
-}
-
-.feedback-btns {
-  display: flex;
-  gap: 8px;
-}
-
-.fb-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 7px 16px;
-  border-radius: 999px;
-  border: 1px solid rgba(226, 232, 240, 0.95);
-  background: rgba(255, 255, 255, 0.6);
-  backdrop-filter: blur(14px);
-  font-size: 12.5px;
-  color: #64748b;
-  cursor: pointer;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.fb-btn:hover {
-  border-color: #93c5fd;
-  color: #3b82f6;
-  background: rgba(59, 130, 246, 0.06);
-  transform: translateY(-1px);
-}
-
-.fb-btn.primary {
-  border-color: rgba(251, 191, 36, 0.4);
-  color: #d97706;
-}
-
-.fb-btn.primary:hover {
-  border-color: #fbbf24;
-  background: rgba(251, 191, 36, 0.08);
-  color: #b45309;
-}
-
-.fb-btn.active {
-  transform: scale(0.96);
-}
-
-.fb-btn.picked {
-  opacity: 0.65;
-  pointer-events: none;
 }
 
 /* ===== 会话历史抽屉 ===== */
@@ -2676,11 +2825,6 @@ onMounted(async () => {
     width: 0;
   }
 
-  .feedback-bar {
-    flex-direction: column;
-    gap: 8px;
-  }
-
   .chat-header {
     padding: 12px 16px;
   }
@@ -2808,4 +2952,294 @@ onMounted(async () => {
     max-width: calc(100vw - 24px);
   }
 }
+
+/* MindMan editorial chat */
+.workspace .main {
+  background: radial-gradient(560px 380px at 88% 8%, #e9f0e5 0, transparent 70%), #faf9f5 !important;
+}
+.workspace .side { background: #f1f5ed !important; border-right: 1px solid #dfe8da !important; }
+.side-title { font-family: 'Noto Serif SC', Georgia, serif; color: #294733; letter-spacing: -.04em; }
+.side-sub, .idle-text, .scan-text { color: #809384; }
+.pulse-dot { background: #83a98a; box-shadow: none; }
+.side-body { scrollbar-color: #bed0bf transparent; }
+.side-body::-webkit-scrollbar-thumb { background: #bed0bf; }
+.collapse-btn:hover { color: #426b4b; border-color: #92ae94; background: #eaf2e7; }
+.scan-line { background: linear-gradient(90deg, transparent, #7ca082, transparent); box-shadow: 0 0 10px #7ca0827a; }
+.scan-core { background: #789d7d; box-shadow: 0 0 12px #789d7d88; }
+.emotion-chip { background: linear-gradient(135deg, #e9f2e7, #f6eee5); border-color: #d7e6d3; }
+.emotion-icon, .ring-card, .star-board, .feedback-card { box-shadow: 0 7px 19px #3557410d; border-color: #e1eadc; }
+.emotion-name, .card-title { color: #304b37; }
+.emotion-bar span { background: linear-gradient(90deg, #83a989, #426b4b); }
+.emotion-score { color: #456e4d; }
+.workspace .chat-header {
+  margin: 18px 22px 0;
+  padding: 11px 16px;
+  background: #fffdf9ed !important;
+  border: 1px solid #dce6da !important;
+  border-radius: 15px !important;
+  box-shadow: 0 9px 26px #31523a12 !important;
+}
+.workspace .ai-logo, .workspace .bubble-avatar { background: transparent !important; box-shadow: none !important; overflow: hidden; }
+.ai-logo img, .bubble-avatar img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.ai-name { font: 600 20px/1.25 Georgia, 'Noto Serif SC', serif; letter-spacing: -.04em; color: #294733; }
+.ai-sub { color: #78907b; }
+.ai-sub.thinking span { background-image: linear-gradient(90deg, #729374, #315a3e, #729374); }
+.header-actions { gap: 6px; }
+.icon-btn { border-radius: 9px; border-color: #e0e8dd; background: #fafbf7; color: #55705b; box-shadow: none; }
+.icon-btn:disabled { opacity: .42; cursor: not-allowed; transform: none; }
+.icon-btn:hover, .garden-icon:hover { color: #315d3f; border-color: #91ad96; background: #eaf2e7; transform: translateY(-2px); }
+.chat-source-note { display: flex; align-items: center; gap: 9px; width: fit-content; max-width: 100%; margin: 0 8px -11px; padding: 8px 11px; border: 1px solid #dce7d8; border-radius: 9px; background: #f1f5ed; color: #5e7d62; font-size: 12px; }
+.chat-source-note span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-source-note button { display: grid; place-items: center; flex: none; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: #788b79; cursor: pointer; }
+.chat-source-note button:hover { background: #e1eadc; color: #31593c; }
+.chat-seal { display: grid; place-items: center; width: 37px; height: 37px; margin-left: 5px; flex: none; border-radius: 12px; transition: transform .3s ease, box-shadow .3s ease; }
+.chat-seal img { width: 100%; height: 100%; display: block; border-radius: inherit; }
+.chat-seal:hover { transform: rotate(-8deg) scale(1.06); box-shadow: 0 7px 16px #31523a28; }
+.chat-seal:focus-visible { outline: 2px solid #426b4b; outline-offset: 3px; }
+.chat-scroll { padding: 26px 28px 17px; }
+.chat-column { max-width: 840px; gap: 21px; }
+.chat-welcome { padding: 34px 8px 31px; margin-bottom: 8px; border-bottom: 1px solid #d8e3d5; animation: welcomeIn .8s both; }
+.welcome-index { display: block; font: 700 10px/1.4 'DM Sans', Arial, sans-serif; letter-spacing: .22em; color: #66856a; }
+.welcome-index i { color: #b58b72; font-style: normal; padding: 0 .3em; }
+.chat-welcome h1 { margin: 15px 0 11px; font: 500 clamp(32px, 3.8vw, 50px)/1.3 'Noto Serif SC', Georgia, serif; letter-spacing: -.055em; color: #2c4533; }
+.chat-welcome h1 em { font-style: normal; color: #729171; }
+.chat-welcome p { max-width: 550px; margin: 0; color: #758575; line-height: 1.85; font-size: 14px; }
+.opening-prompts { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 22px; }
+.opening-prompts button { display: inline-flex; align-items: center; gap: 17px; padding: 10px 14px; border: 1px solid #cadac8; border-radius: 8px; background: #fffdf9; color: #42634a; font-family: inherit; font-size: 13px; font-weight: 500; line-height: 1.45; cursor: pointer; transition: transform .25s ease, border-color .25s ease, background .25s ease, box-shadow .25s ease; }
+.opening-prompts button span { color: #9aaf9a; font-size: 15px; }
+.opening-prompts button:hover { transform: translateY(-3px); border-color: #799d7c; background: #f2f7ee; box-shadow: 0 7px 16px #36594015; }
+.opening-prompts button:focus-visible { outline: 2px solid #426b4b; outline-offset: 2px; }
+@keyframes welcomeIn { from { opacity: 0; transform: translateY(22px); } to { opacity: 1; transform: translateY(0); } }
+.workspace .ai-bubble { max-width: 80%; padding: 17px 21px; background: #fff !important; border: 1px solid #e3eade !important; border-radius: 17px 17px 17px 5px !important; box-shadow: 0 10px 25px #3557410e !important; backdrop-filter: none; }
+.workspace .user-bubble { padding: 14px 18px; background: #e6f0e3 !important; border: 1px solid #d1e1ce !important; border-radius: 17px 17px 5px 17px !important; box-shadow: none !important; backdrop-filter: none; }
+.bubble-name { color: #3c6845; }
+.chat-content { color: #344d39; line-height: 1.85; }
+.reply-state { margin-top: 10px; color: #94745b; font-size: 11px; line-height: 1.6; }
+.ai-card { border-radius: 10px; background: #f7f9f5; border-color: #e1eadf; box-shadow: none; }
+.card-head, .card-duration { color: #7d9080; }
+.card-bar { background: #e4ece1; }
+.card-bar-fill { background: linear-gradient(90deg, #a5bea1, #5f8d65); }
+.card-percent { color: #527c58; }
+.thinking-wave span { background: #75997b; }
+.stream-cursor { background: #426b4b; }
+.composer-wrap { padding: 12px 22px 20px; }
+.workspace .composer { max-width: 840px; background: #fff !important; border: 1px solid #d9e6d7 !important; border-radius: 15px !important; box-shadow: 0 8px 25px #33563c15 !important; }
+.workspace .composer:focus-within { border-color: #739a79 !important; box-shadow: 0 0 0 2px #71957530, 0 10px 29px #33563c19 !important; }
+.tool-btn { border-radius: 9px; border-color: #e4eadf; background: #f5f8f2; color: #5a785d; box-shadow: none; }
+.tool-btn:hover { background: #e6f0e3; color: #31593c; transform: translateY(-2px); box-shadow: none; }
+.model-btn { background: #eaf1e7 !important; border-color: #cbdcca !important; }
+.model-icon, .model-check { color: #4f7457; }
+.composer-input :deep(.el-textarea__inner) { color: #344d39; }
+.composer-input :deep(.el-textarea__inner::placeholder) { color: #879d8b; }
+.workspace .send-btn { border-radius: 11px !important; background: #315a3e !important; box-shadow: none !important; }
+.workspace .send-btn:hover:not(:disabled) { background: #244c32 !important; transform: translateY(-2px); box-shadow: 0 8px 17px #31523a30 !important; }
+.mood-panel { border-color: #dce7d8; background: #fffdf9; box-shadow: 0 18px 45px #31523a20; }
+.summary-dialog-heading { display: flex; align-items: center; gap: 12px; color: #294733; }
+.summary-dialog-heading > div { display: grid; gap: 4px; }
+.summary-dialog-heading strong { font: 600 19px/1.3 'Noto Serif SC', Georgia, serif; }
+.summary-dialog-heading > div > span { color: #829083; font-size: 12px; font-weight: 400; }
+.summary-dialog-icon { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 11px; background: #edf3e9; color: #507454; }
+.summary-loading { display: flex; align-items: center; gap: 11px; min-height: 180px; justify-content: center; color: #718473; font-size: 13px; }
+.summary-loading-orb { width: 10px; height: 10px; border-radius: 50%; background: #739478; box-shadow: 0 0 0 6px #73947820; animation: summaryPulse 1.4s ease-in-out infinite; }
+@keyframes summaryPulse { 50% { transform: scale(.78); opacity: .58; } }
+.summary-content { max-height: min(52vh, 520px); overflow: auto; padding: 18px 20px; border: 1px solid #e4eadf; border-radius: 13px; background: #f8f9f5; color: #3d5541; font-size: 14px; line-height: 1.95; }
+.summary-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 150px; color: #8b635a; }
+.summary-error button, .summary-copy, .summary-close { padding: 9px 14px; border: 1px solid #d6e2d3; border-radius: 9px; background: #f3f7f0; color: #426b4b; font-family: inherit; font-size: 12px; font-weight: 500; line-height: 1.2; cursor: pointer; }
+.summary-copy { border-color: #315a3e; background: #315a3e; color: white; }
+.summary-copy:disabled { opacity: .45; cursor: not-allowed; }
+.summary-dialog-footer { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.summary-dialog-footer > span { color: #899689; font-size: 11px; }
+.summary-dialog-footer > div { display: flex; gap: 8px; }
+:global(.conversation-summary-dialog .el-dialog) { overflow: hidden; border-radius: 17px; background: #fffdf9; box-shadow: 0 22px 75px #1c33252b; }
+:global(.conversation-summary-dialog .el-dialog__header) { margin: 0; padding: 22px 24px 15px; border-bottom: 1px solid #edf0e9; }
+:global(.conversation-summary-dialog .el-dialog__body) { padding: 20px 24px 8px; }
+:global(.conversation-summary-dialog .el-dialog__footer) { padding: 14px 24px 20px; }
+@media (max-width: 860px) { .chat-welcome { padding-top: 23px; } .chat-seal { display: none; } }
+@media (max-width: 520px) {
+  .workspace .chat-header { margin: 8px 10px 0; padding: 8px 10px; }
+  .ai-brand { gap: 8px; }
+  .ai-logo { width: 34px; height: 34px; border-radius: 10px; }
+  .ai-name { font-size: 17px; }
+  .ai-sub { display: none; }
+  .header-actions { gap: 4px; }
+  .icon-btn { width: 32px; height: 32px; }
+  .chat-scroll { padding: 16px 12px 8px; }
+  .chat-welcome { padding: 17px 2px 23px; }
+  .chat-welcome h1 { font-size: 30px; }
+  .chat-welcome p { font-size: 13px; }
+  .opening-prompts { margin-top: 17px; }
+  .opening-prompts button { padding: 8px 10px; font-size: 12px; }
+  .workspace .ai-bubble { max-width: 85%; padding: 14px 16px; }
+  .workspace .user-bubble { max-width: 82%; }
+  .composer-wrap { padding: 8px 10px 12px; }
+  .chat-source-note { margin: 0 2px -8px; font-size: 11px; }
+  .summary-dialog-footer { align-items: flex-start; flex-direction: column; }
+  .summary-dialog-footer > div { width: 100%; justify-content: flex-end; }
+  :global(.conversation-summary-dialog .el-dialog__header) { padding: 18px 18px 13px; }
+  :global(.conversation-summary-dialog .el-dialog__body) { padding: 16px 18px 6px; }
+  :global(.conversation-summary-dialog .el-dialog__footer) { padding: 12px 18px 17px; }
+  .workspace .composer { flex-wrap: wrap; gap: 7px; padding: 8px; }
+  .composer-tools { width: 100%; justify-content: space-between; }
+  .composer-input { order: 1; flex: 1 1 0; }
+  .send-btn { order: 2; }
+  .composer-input :deep(.el-textarea__inner) { min-height: 40px !important; max-height: 90px; overflow-y: auto; }
+}
+
+/* Shared navigation and page heading */
+.workspace { flex-direction: column; background: #f8f7f2; }
+.workspace-body { display: flex; flex: 1; min-height: 0; }
+.consult-context-bar { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 82px; padding: 12px clamp(18px, 2.3vw, 32px); border-bottom: 1px solid #e7e9df; }
+.consult-context-copy { display: grid; gap: 4px; min-width: 0; }
+.consult-context-title-row { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.consult-context-title { margin: 0; color: #2e4c38; font: 600 clamp(20px, 2vw, 24px)/1.3 'Noto Serif SC', Georgia, serif; letter-spacing: -.045em; white-space: nowrap; }
+.consult-context-status { margin: 0; color: #839385; font: 500 12px/1.5 'Noto Sans SC', sans-serif; }
+.consult-context-status.thinking { color: #5c8260; }
+.consult-ai-badge { display: inline-flex; align-items: center; gap: 5px; padding: 5px 9px; border: 1px solid #dbe5d7; border-radius: 999px; background: #eef3e9; color: #527457; font: 600 11px/1 'Noto Sans SC', sans-serif; white-space: nowrap; }
+.consult-context-bar .icon-btn { width: 35px; height: 35px; }
+@media (max-width: 780px) {
+  .consult-context-bar { min-height: 74px; padding: 10px 18px; }
+  .consult-context-title-row { gap: 9px; }
+}
+@media (max-width: 520px) {
+  .consult-context-bar { min-height: 66px; padding: 8px 13px; gap: 10px; }
+  .consult-context-copy { gap: 2px; }
+  .consult-context-title { font-size: 17px; }
+  .consult-context-status { font-size: 10px; }
+  .consult-ai-badge { gap: 4px; padding: 4px 6px; font-size: 9px; }
+  .consult-context-bar .icon-btn { width: 32px; height: 32px; }
+  .consult-context-bar .header-actions { gap: 5px; }
+}
+@media (max-width: 900px) { .workspace { padding-top: 74px; } }
+@media (max-width: 620px) {
+  .workspace { padding-top: 70px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-welcome, .chat-row, .bubble-avatar.breathe { animation: none !important; }
+  .opening-prompts button, .icon-btn, .tool-btn, .send-btn { transition: none !important; }
+}
+
+.article-context-bar {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: min(840px, 100%);
+  box-sizing: border-box;
+  margin: 0 auto 10px;
+  padding: 12px 14px;
+  border: 1px solid #dce8d8;
+  border-radius: 14px;
+  background: linear-gradient(110deg, #f1f6ed, #fffdf8 76%);
+  box-shadow: 0 6px 18px #31523a0b;
+}
+.article-context-icon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid #d5e4d1;
+  border-radius: 11px;
+  background: #e8f1e4;
+  color: #527958;
+}
+.article-context-copy { display: grid; min-width: 0; gap: 3px; }
+.article-context-label { color: #779079; font-size: 10px; font-weight: 650; letter-spacing: .04em; }
+.article-context-copy strong {
+  overflow: hidden;
+  color: #304c37;
+  font: 600 13px/1.45 'Noto Sans SC', sans-serif;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.article-context-copy small { color: #819081; font-size: 10px; line-height: 1.45; }
+.article-context-actions { display: flex; align-items: center; gap: 6px; }
+.article-context-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid #d9e5d6;
+  border-radius: 9px;
+  background: #fffefa;
+  color: #496b4f;
+  font: 550 11px/1.2 'Noto Sans SC', sans-serif;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background .2s ease, border-color .2s ease, transform .2s ease;
+}
+.article-context-action.primary { border-color: #426b4b; background: #426b4b; color: #fff; }
+.article-context-action:hover:not(:disabled) { transform: translateY(-1px); border-color: #88a787; background: #edf4e9; }
+.article-context-action.primary:hover:not(:disabled) { border-color: #31583b; background: #31583b; }
+.article-context-action:disabled { opacity: .48; cursor: not-allowed; }
+.article-context-action:focus-visible, .article-context-remove:focus-visible { outline: 2px solid #426b4b; outline-offset: 2px; }
+.article-context-remove {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #879687;
+  cursor: pointer;
+}
+.article-context-remove:hover { background: #e6eee2; color: #426b4b; }
+.ai-bubble .chat-content { white-space: normal; }
+.user-bubble .chat-content { white-space: pre-wrap; }
+@media (max-width: 860px) {
+  .article-context-bar { grid-template-columns: 34px minmax(0, 1fr) 28px; gap: 9px; padding: 10px 11px; }
+  .article-context-icon { width: 34px; height: 34px; }
+  .article-context-copy { grid-column: 2; grid-row: 1; padding-right: 2px; }
+  .article-context-remove { grid-column: 3; grid-row: 1; align-self: start; }
+  .article-context-actions { grid-column: 2 / 4; grid-row: 2; flex-wrap: wrap; }
+}
+@media (max-width: 520px) {
+  .article-context-bar { margin-bottom: 8px; border-radius: 12px; }
+  .article-context-copy strong { font-size: 12px; }
+  .article-context-copy small { font-size: 9px; }
+  .article-context-actions { gap: 6px; }
+  .article-context-action { min-height: 32px; flex: 1 1 auto; padding: 0 8px; font-size: 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .article-context-action { transition: none; }
+  .article-context-action:hover { transform: none; }
+}
+/* Evidence-led AI observation panel: no decorative, ungrounded scores. */
+.analysis-result { display: grid; gap: 11px; padding: 1px 0 8px; }
+.analysis-result > * { animation: analysisCueIn .38s both; }
+.analysis-result > *:nth-child(2) { animation-delay: 35ms; }
+.analysis-result > *:nth-child(3) { animation-delay: 70ms; }
+.analysis-result > *:nth-child(4) { animation-delay: 105ms; }
+.analysis-result > *:nth-child(5) { animation-delay: 140ms; }
+.analysis-result > *:nth-child(6) { animation-delay: 175ms; }
+.analysis-result-head { display: flex; justify-content: space-between; align-items: center; color: #829283; font-size: 10px; letter-spacing: .08em; }
+.analysis-source { padding: 4px 7px; border-radius: 6px; background: #edf2e9; color: #6a856d; font-size: 9px; letter-spacing: 0; }
+.analysis-source.agent { background: #e8f0e4; color: #456b4d; }
+.analysis-source.rules { background: #f3efe6; color: #89775c; }
+.analysis-result .emotion-chip { gap: 11px; padding: 12px; border: 1px solid #dce7d8; border-radius: 13px; background: linear-gradient(135deg,#f2f6ef,#f8f4ec); box-shadow: none; }
+.analysis-result .emotion-icon { width: 36px; height: 36px; border: 1px solid #e0e9dc; border-radius: 11px; background: #fffdfa; color: #66876a; box-shadow: none; }
+.analysis-result .emotion-name { margin-bottom: 3px; color: #304a36; font-size: 15px; font-weight: 650; }
+.emotion-state { color: #849183; font-size: 10px; line-height: 1.55; }
+.analysis-evidence { margin: 0; padding: 10px 11px; border-left: 2px solid #91aa8d; border-radius: 0 9px 9px 0; background: #f5f7f2; color: #4d654f; }
+.analysis-evidence > span { color: #879586; font-size: 9px; letter-spacing: .08em; }
+.analysis-evidence p { margin: 4px 0 0; font-size: 11px; line-height: 1.7; overflow-wrap: anywhere; }
+.analysis-cues { display: grid; gap: 6px; }
+.analysis-cue { padding: 8px 9px; border: 1px solid #e5eadf; border-radius: 9px; background: #fffefa; }
+.cue-heading { display: flex; align-items: center; gap: 7px; min-height: 16px; }
+.cue-dot { width: 6px; height: 6px; flex: none; border-radius: 50%; background: #c6cec2; }
+.cue-dot.mentioned { background: #6e9874; box-shadow: 0 0 0 3px #6e98741a; }
+.cue-heading strong { color: #546958; font-size: 10px; font-weight: 600; }
+.cue-status { margin-left: auto; color: #a0a99c; font-size: 9px; }
+.cue-status.mentioned { color: #658469; }
+.analysis-cue small { display: block; margin: 5px 0 0 13px; color: #829181; font-size: 9px; line-height: 1.55; overflow-wrap: anywhere; }
+.analysis-result .feedback-card { margin: 0; padding: 11px 12px; border: 1px solid #e4e9df; border-radius: 11px; background: #fffefa; box-shadow: none; }
+.analysis-result .fb-card-head { margin-bottom: 5px; color: #618066; font-size: 10px; letter-spacing: 0; }
+.analysis-result .fb-card-body { margin: 0; color: #566b59; font-size: 10px; line-height: 1.75; }
+.analysis-provenance { display: flex; justify-content: space-between; gap: 8px; color: #98a294; font-size: 9px; line-height: 1.5; }
+@keyframes analysisCueIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .analysis-result > * { animation: none; } }
 </style>
