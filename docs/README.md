@@ -2,6 +2,12 @@
 
 本目录存放项目级设计文档；后端接口的权威规范放在 `code/backend/docs/`。
 
+## 用户与部署文档
+
+- [用户指南](./user-guide.md)：情绪记录、AI 对话、文章阅读与常见问题。
+- [开发与部署说明](./developer-guide.md)：技术栈、启动配置和接口入口。
+- [当前界面截图](./screenshots/current/README.md)：使用演示数据截取的页面预览。
+
 | 文档 | 语言 | 状态 | 说明 |
 | --- | --- | --- | --- |
 | [`openapi.yaml`](./openapi.yaml) | — | ✅ 现行 | OpenAPI 3 规范文件，可导入 Apifox / Postman |
