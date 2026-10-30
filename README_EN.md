@@ -6,7 +6,7 @@
 
 AI conversations, mood journaling, psychology reading, and relaxing sounds in one place.
 
-[中文](./README.md) · [User guide (Chinese)](./docs/user-guide.md) · [Setup and deployment (Chinese)](./docs/developer-guide.md)
+[Visit website](http://123.60.67.126/) · [中文](./README.md) · [User guide (Chinese)](./docs/user-guide.md) · [Setup and deployment (Chinese)](./docs/developer-guide.md)
 
 </div>
 
@@ -48,7 +48,9 @@ Screenshots show the current frontend with demonstration accounts, entries, arti
 
 ## Getting started
 
-Try the [online frontend preview](https://mindman-preview.onrender.com/) with the prefilled `demo / 123456` account. This demo uses simulated interactions and has no real AI or cloud database. Deploy the complete application for real records and model-backed features.
+Visit the [MindMan website](http://123.60.67.126/) and register your own account. The live deployment includes the frontend, backend, and database for mood records, conversations, and articles. AI features require an available model service.
+
+A separate [Render frontend demo](https://mindman-preview.onrender.com/) remains available with the prefilled `demo / 123456` account. It uses simulated interactions and has no real AI or cloud database.
 
 AI features require a reachable cloud model or local Ollama service. A cloud-hosted website can connect to a model running on a personal computer, but this needs additional secure network configuration. AI features become unavailable when that computer is offline or asleep.
 

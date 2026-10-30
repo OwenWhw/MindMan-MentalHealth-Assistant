@@ -8,7 +8,7 @@
 
 一个把 AI 倾听、情绪分析、心情记录和心理阅读连接起来的日常陪伴空间。
 
-[在线预览](https://mindman-preview.onrender.com/) · [用户指南](./docs/user-guide.md) · [页面预览](#页面预览) · [版本更新](./docs/releases/v1.1.0.md) · [安装与部署](./docs/developer-guide.md) · [English](./README_EN.md)
+[访问官网](http://123.60.67.126/) · [用户指南](./docs/user-guide.md) · [页面预览](#页面预览) · [版本更新](./docs/releases/v1.1.0.md) · [安装与部署](./docs/developer-guide.md) · [English](./README_EN.md)
 
 </div>
 
@@ -83,7 +83,9 @@
 4. 找到喜欢的文章后，选择 **带去倾听空间**，继续阅读与讨论。
 5. 想休息时，进入 **放松片刻** 选择一段声音。
 
-更详细的操作说明见 [用户指南](./docs/user-guide.md)。[在线预览](https://mindman-preview.onrender.com/) 可使用已填入的 `demo / 123456` 演示账号进入。预览仅展示页面与模拟交互，未连接真实 AI 或云端数据库；完整功能需要自行部署。
+打开 [MindMan 官网](http://123.60.67.126/)，注册并登录自己的账号，即可使用线上服务。官网已部署前后端和数据库，支持保存心情记录、管理会话和阅读文章；AI 功能需要模型服务在线。更详细的操作说明见 [用户指南](./docs/user-guide.md)。
+
+另有 [Render 静态演示站](https://mindman-preview.onrender.com/)，可使用已填入的 `demo / 123456` 演示账号查看页面与模拟交互。该演示站不连接真实 AI 或云端数据库，与官网分开运行。
 
 ## 运行与可用性
 
@@ -93,7 +95,7 @@ MindMan 支持调用云端模型或 Ollama 本地模型。AI 对话、分析、�
 
 部署前请阅读 [开发与部署说明](./docs/developer-guide.md) 和 [阿里云部署手册](./deploy/部署手册.md)。混合部署需要额外配置网络和模型地址，并非默认开箱即用。
 
-购买服务器前，可以使用 [Render 免费预览配置](./deploy/render-preview.md) 展示前端。该模式会明确标注演示状态，不连接真实 AI 或云端数据库。
+如需自行搭建仅展示界面的版本，可以使用 [Render 免费预览配置](./deploy/render-preview.md)。该模式会明确标注演示状态，不连接真实 AI 或云端数据库。
 
 ## 关于你的记录
 
